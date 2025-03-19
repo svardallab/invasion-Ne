@@ -1,38 +1,42 @@
 # Workaround CALCUA VSC requirements about conda environments and containers
 COMMON = "calcua.sh"
+MODELS = ["constant_demography", "invasion_demography"]
+PROGRAMS = ["gone", "ibdne", "singer"]
 
 
 rule all:
     input:
         expand(
-            "steps/smcpp/invasion_demography_{seed}_n25.ne.csv",
-            seed=[100 + i for i in range(15)],
+            "steps/{program}/{model}_{seed}_n150.ne.csv",
+            seed=[100 + i for i in range(25)],
+            model=MODELS,
+            program=PROGRAMS,
         ),
         expand(
-            "steps/gone2/invasion_demography_{seed}_n100.ne.csv",
-            seed=[100 + i for i in range(15)],
+            "simulations/{model}.csv",
+            model=MODELS,
         ),
 
 
 rule model:
     input:
-        "src/invasion_demography.py",
+        "src/{model}.py",
     output:
-        "simulations/invasion_demography.pdf",
-        "simulations/invasion_demography.yaml",
+        "simulations/{model}.pdf",
+        "simulations/{model}.yaml",
     shell:
         """
-    source {COMMON}
-        python {input} simulations/invasion_demography
+        source {COMMON}
+        python {input} simulations/{wildcards.model}
         """
 
 
 rule coalescence_simulation:
     input:
         "src/run_msprime.py",
-        "simulations/invasion_demography.yaml",
+        "simulations/{model}.yaml",
     output:
-        r"steps/trees/invasion_demography_{seed,\d+}.trees.tsz",
+        r"steps/trees/{model}_{seed,\d+}.trees.tsz",
     shell:
         """
     source {COMMON}
@@ -43,10 +47,10 @@ rule coalescence_simulation:
 rule overlay_mutations:
     input:
         "src/overlay_mutations.py",
-        "steps/trees/invasion_demography_{seed}.trees.tsz",
+        "steps/trees/{model}_{seed}.trees.tsz",
     output:
-        r"steps/vcfs/invasion_demography_{seed,\d+}.vcf.gz",
-        r"steps/vcfs/invasion_demography_{seed,\d+}.vcf.gz.tbi",
+        r"steps/vcfs/{model}_{seed,\d+}.vcf.gz",
+        r"steps/vcfs/{model}_{seed,\d+}.vcf.gz.tbi",
     shell:
         """
     source {COMMON}
@@ -55,19 +59,32 @@ rule overlay_mutations:
     """
 
 
+rule population_size_trajectory:
+    input:
+        "src/population_size_trajectory.py",
+        "simulations/{file}.yaml",
+    output:
+        "simulations/{file}.csv",
+    shell:
+        """
+    source {COMMON}
+        python {input} > {output}
+    """
+
+
 rule smc_vcf2smc:
     input:
-        "steps/vcfs/invasion_demography_{seed}.vcf.gz",
+        "steps/vcfs/{model}_{seed}.vcf.gz",
     output:
-        r"steps/smcpp/invasion_demography_{seed, \d+}_n{n,\d+}.smc.gz",
+        r"steps/smcpp/{model}_{seed, \d+}_n150.smc.gz",
     log:
-        "steps/smcpp/invasion_demography_{seed}_n{n}.log",
+        "steps/smcpp/{model}_{seed}_n150.log",
     container:
         "external/smcpp.sif"
     shell:
         """
-    	SAMPLES=$(printf "tsk_%dindv," $(seq 0 $(({wildcards.n}-1))) | sed 's/,$//')
-    	echo $SAMPLES
+        SAMPLES=$(zcat {input} | grep -m1 "^#CHROM" | cut -f10- | tr '\t' ',')
+        echo $SAMPLES
         smc++ vcf2smc {input} {output} 1 Pop1:$SAMPLES
         """
 
@@ -107,26 +124,107 @@ rule smcpp_ne:
         """
 
 
-rule gone2_ne:
+rule gone_ne:
     input:
-        "steps/vcfs/invasion_demography_{seed}.vcf.gz",
+        script="external/gone/script_GONE.sh",
+        invcf="steps/vcfs/{model}_{seed}.vcf.gz",
+    log:
+        "steps/gone/{model}_{seed}_n150.log",
     output:
-        "steps/gone2/invasion_demography_{seed}_n100.ne.csv",
+        "steps/gone/{model}_{seed}_n150.ne.csv",
     threads: 4
+    shadow:
+        "shallow"
     shell:
         """
-        # Initialize the output file with headers
-        if [ ! -f {output} ]; then
-            echo "generations,Ne" > {output}
-        fi
-    temp="steps/gone2/temp_{wildcards.seed}.vcf"
-        gunzip -c {input} > $temp
-        for i in {{1..5}}
-        do
-            seed=$(( {wildcards.seed} + i - 1 ))  # Increment seed value by the loop index
-            ./external/gone2 -e -s ${{seed}} -t {threads} -r 1.0 $temp -o steps/gone2/temp_{wildcards.seed}
-            awk -F, 'NR > 1 {{print $1","$2}}' steps/gone2/temp_{wildcards.seed}_GONE2_Ne >> {output}
-            rm steps/gone2/temp_{wildcards.seed}_GONE2_*
-        done
-    rm $temp
+        source {COMMON}
+        export PHASE=1  # Phase = 0 (pseudohaploids), 1 (known phase), 2 (unknown phase)
+        export cMMb=1   # CentiMorgans per Megabase (if distance is not available in map file)
+        export DIST=1   # none (0), Haldane correction (1) or Kosambi correction (2)
+        export NGEN=2000  # Number of generations for which linkage data is obtained in bins
+        export NBIN=400   # Number of bins (each bin includes NGEN/NBIN = 5 generations)
+        export MAF=0.0    # Minor allele frequency (recommended 0)
+        export ZERO=1     # 0: Remove SNPs with zeroes (1: allow them)
+        export maxNCHROM=-99  # Max number of chromosomes (-99 = all)
+        export maxNSNP=50000  # Max number of SNPs per chromosome (max = 50000)
+        export hc=0.05    # Max value of c analyzed (recommended 0.05; max is 0.5)
+        export REPS=40    # Number of replicates to run GONE (recommended 40)
+        export threads={threads}  # Number of threads (-99 uses all available processors)
+        
+        plink --vcf {input.invcf} --recode --out myplink &> {log}
+        
+        bash {input.script} myplink &>> {log}
+        
+        echo 'generations,Ne' > {output}
+        tail -n +3 Output_Ne_myplink | sed 's/\t/,/g' >> {output}
+        """
+
+
+rule ibdne:
+    input:
+        hapibd="external/hap-ibd.jar",
+        ibdne="external/ibdne.jar",
+        invcf="steps/vcfs/{model}_{seed}.vcf.gz",
+    log:
+        "steps/ibdne/{model}_{seed}_n150.log",
+    output:
+        "steps/ibdne/{model}_{seed}_n150.ne.csv",
+    threads: 4
+    shadow:
+        "shallow"
+    envmodules:
+        "calcua/2024a",
+        "Java/21.0.5",
+    shell:
+        """
+        echo -e "1  rs100  0  1\n1  rs101  1  1000000" > plink.map
+        java -Xmx8g -jar {input.hapibd} gt={input.invcf} map=plink.map nthreads={threads} out=out
+        cat out.log > {log}
+        zcat out.ibd.gz | java -jar {input.ibdne} mincm=1 seed={wildcards.seed} map=plink.map nboots=0 out=ne nthreads={threads}
+        ls >> {log}
+        cat ne.log >> {log}
+        echo 'generations,Ne' > {output}
+        tail -n +2 ne.ne | sed 's/\t/,/g' >> {output}
+        """
+
+
+rule singer:
+    input:
+        singer_smk="external/singer-snakemake",
+        singer_config="external/singer-snakemake/config/data_config.yaml",
+        invcf="steps/vcfs/{model}_{seed}.vcf.gz",
+    log:
+        "steps/singer/{model}_{seed}_n150.log",
+    output:
+        directory("steps/singer/{model}_{seed}_n150"),
+    threads: 15
+    shadow:
+        "shallow"
+    shell:
+        """
+        source {COMMON}
+        # Copy the singer snakemake directory
+        cp -r {input.singer_smk} .
+        # Symlink the VCF file
+        mkdir singer-snakemake/data
+        ln {input.invcf} singer-snakemake/data/
+        # Execute snakemake workflow
+        cd singer-snakemake
+        snakemake -c {threads} &> ../{log}
+        # Copy relevant output files
+        cd ..
+        mv singer-snakemake/results/{wildcards.model}_{wildcards.seed}/trees {output}
+        """
+
+
+rule singer_ne:
+    input:
+        script="src/singer_ne.py",
+        indir="steps/singer/{model}_{seed}_n150",
+    output:
+        "steps/singer/{model}_{seed}_n150.ne.csv",
+    shell:
+        """
+        source {COMMON}
+        python {input.script} {input.indir}/*.trees > {output}
         """

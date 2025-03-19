@@ -16,7 +16,7 @@ def main(infile, seed, outfile):
     sequence_length = 1e8
     recombination_rate = 1e-8
     ts = msprime.sim_ancestry(
-        samples=100,
+        samples=150,
         demography=demography,
         sequence_length=sequence_length,
         recombination_rate=recombination_rate,
