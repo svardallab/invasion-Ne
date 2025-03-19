@@ -1,0 +1,9 @@
+*.swp
+*.swo
+.snakemake/
+*.log
+data/
+results/*
+.test-workflow/diploid*
+.test-workflow/haploid*
+
