@@ -1,14 +1,15 @@
 # Workaround CALCUA VSC requirements about conda environments and containers
 COMMON = "calcua.sh"
 MODELS = ["constant_demography", "invasion_demography"]
-PROGRAMS = ["gone", "ibdne", "singer"]
+PROGRAMS = ["gone", "ibdne"]
 
 
 rule all:
     input:
         expand(
-            "steps/{program}/{model}_{seed}_n150.ne.csv",
+            "steps/{program}/{model}_s{seed}_n{n}.ne.csv",
             seed=[100 + i for i in range(25)],
+            n=[500, 1000],
             model=MODELS,
             program=PROGRAMS,
         ),
@@ -36,21 +37,21 @@ rule coalescence_simulation:
         "src/run_msprime.py",
         "simulations/{model}.yaml",
     output:
-        r"steps/trees/{model}_{seed,\d+}.trees.tsz",
+        r"steps/trees/{model}_s{seed,\d+}_n{n,\d+}.trees.tsz",
     shell:
         """
     source {COMMON}
-        python {input} {wildcards.seed} {output}
+        python {input} {wildcards.seed} {wildcards.n} {output}
         """
 
 
 rule overlay_mutations:
     input:
         "src/overlay_mutations.py",
-        "steps/trees/{model}_{seed}.trees.tsz",
+        "steps/trees/{model}_s{seed}_n{n}.trees.tsz",
     output:
-        r"steps/vcfs/{model}_{seed,\d+}.vcf.gz",
-        r"steps/vcfs/{model}_{seed,\d+}.vcf.gz.tbi",
+        r"steps/vcfs/{model}_s{seed}_n{n}.vcf.gz",
+        r"steps/vcfs/{model}_s{seed}_n{n}.vcf.gz.tbi",
     shell:
         """
     source {COMMON}
@@ -74,11 +75,11 @@ rule population_size_trajectory:
 
 rule smc_vcf2smc:
     input:
-        "steps/vcfs/{model}_{seed}.vcf.gz",
+        "steps/vcfs/{model}_s{seed}_n{n}.vcf.gz",
     output:
-        r"steps/smcpp/{model}_{seed, \d+}_n150.smc.gz",
+        r"steps/smcpp/{model}_s{seed}_n{n}.smc.gz",
     log:
-        "steps/smcpp/{model}_{seed}_n150.log",
+        "steps/smcpp/{model}_s{seed}_n{n}.log",
     container:
         "external/smcpp.sif"
     shell:
@@ -127,11 +128,11 @@ rule smcpp_ne:
 rule gone_ne:
     input:
         script="external/gone/script_GONE.sh",
-        invcf="steps/vcfs/{model}_{seed}.vcf.gz",
+        invcf="steps/vcfs/{model}_s{seed}_n{n}.vcf.gz",
     log:
-        "steps/gone/{model}_{seed}_n150.log",
+        "steps/gone/{model}_s{seed}_n{n}.log",
     output:
-        "steps/gone/{model}_{seed}_n150.ne.csv",
+        "steps/gone/{model}_s{seed}_n{n}.ne.csv",
     threads: 4
     shadow:
         "shallow"
@@ -164,11 +165,11 @@ rule ibdne:
     input:
         hapibd="external/hap-ibd.jar",
         ibdne="external/ibdne.jar",
-        invcf="steps/vcfs/{model}_{seed}.vcf.gz",
+        invcf="steps/vcfs/{model}_s{seed}_n{n}.vcf.gz",
     log:
-        "steps/ibdne/{model}_{seed}_n150.log",
+        "steps/ibdne/{model}_s{seed}_n{n}.log",
     output:
-        "steps/ibdne/{model}_{seed}_n150.ne.csv",
+        "steps/ibdne/{model}_s{seed}_n{n}.ne.csv",
     threads: 4
     shadow:
         "shallow"
@@ -192,11 +193,11 @@ rule singer:
     input:
         singer_smk="external/singer-snakemake",
         singer_config="external/singer-snakemake/config/data_config.yaml",
-        invcf="steps/vcfs/{model}_{seed}.vcf.gz",
+        invcf="steps/vcfs/{model}_s{seed}_n{n}.vcf.gz",
     log:
-        "steps/singer/{model}_{seed}_n150.log",
+        "steps/singer/{model}_s{seed}_n{n}.log",
     output:
-        directory("steps/singer/{model}_{seed}_n150"),
+        directory("steps/singer/{model}_s{seed}_n{n}"),
     threads: 15
     shadow:
         "shallow"
@@ -220,9 +221,9 @@ rule singer:
 rule singer_ne:
     input:
         script="src/singer_ne.py",
-        indir="steps/singer/{model}_{seed}_n150",
+        indir="steps/singer/{model}_s{seed}_n{n}",
     output:
-        "steps/singer/{model}_{seed}_n150.ne.csv",
+        "steps/singer/{model}_s{seed}_n{n}.ne.csv",
     shell:
         """
         source {COMMON}

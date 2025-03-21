@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import tszip
 
 
-def main(infile, seed, outfile):
+def main(infile, seed, sample_size, outfile):
     # Read demography from demes
     graph = demes.load(infile)
     demography = msprime.Demography.from_demes(graph)
@@ -16,7 +16,7 @@ def main(infile, seed, outfile):
     sequence_length = 1e8
     recombination_rate = 1e-8
     ts = msprime.sim_ancestry(
-        samples=150,
+        samples=sample_size,
         demography=demography,
         sequence_length=sequence_length,
         recombination_rate=recombination_rate,
@@ -27,12 +27,13 @@ def main(infile, seed, outfile):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("Usage: python script.py <input_yaml> <seed> <output>")
+    if len(sys.argv) != 5:
+        print("Usage: python script.py <input_yaml> <seed> <sample_size> <output>")
         sys.exit(1)
 
     input_yaml = sys.argv[1]
-    seed = int(sys.argv[2])  # Ensure seed is an integer
-    output = sys.argv[3]
+    seed = int(sys.argv[2])
+    sample_size = int(sys.argv[3])
+    output = sys.argv[4]
 
-    main(input_yaml, seed, output)
+    main(input_yaml, seed, sample_size, output)
