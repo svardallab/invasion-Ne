@@ -1,9 +1,0 @@
-tskit>=0.5.8
-snakemake>=8.0.0
-msprime
-scikit-allel
-numpy
-pyyaml
-matplotlib
-numba
-argparse

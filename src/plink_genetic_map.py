@@ -12,7 +12,7 @@ def main(infile, chromosome):
     recombination_rate = metadata["recombination_rate"]
     sequence_length = metadata['sequence_length']
     # Print to stdout the genetic map
-    print(f"{chromosome}\trs1\t0\t1")
+    print(f"{chromosome}\trs1\t0\t0")
     cm_length = sequence_length * recombination_rate * 100
     print(f"{chromosome}\trs2\t{cm_length}\t{int(sequence_length)}")
 
