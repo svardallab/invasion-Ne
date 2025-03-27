@@ -35,7 +35,8 @@ rule overlay_mutations:
     output:
         "steps/vcfs/{model}/s{seed}_n{n}_{chrom}.vcf.gz",
         "steps/vcfs/{model}/s{seed}_n{n}_{chrom}.vcf.gz.tbi",
-    shadow: "shallow"
+    shadow:
+        "shallow"
     shell:
         """
         source {COMMON}
@@ -46,6 +47,7 @@ rule overlay_mutations:
             -Oz > {output[0]}
         tabix -p vcf {output[0]}
         """
+
 
 rule plink_genetic_map:
     input:
@@ -59,6 +61,7 @@ rule plink_genetic_map:
         python {input} {wildcards.chrom} > {output}
         """
 
+
 rule shapeit_genetic_map:
     input:
         "src/shapeit_genetic_map.py",
@@ -71,12 +74,13 @@ rule shapeit_genetic_map:
         python {input} {wildcards.chrom} > {output}
         """
 
+
 rule concatenate_vcfs:
     input:
         expand(
             "steps/vcfs/{{model}}/s{{seed}}_n{{n}}_{chrom}.vcf.gz",
             chrom=[f"chr{i+1}" for i in range(NUM_CHR)],
-        )
+        ),
     output:
         "steps/vcfs/{model}/s{seed}_n{n}.vcf.gz",
         "steps/vcfs/{model}/s{seed}_n{n}.vcf.gz.tbi",
@@ -87,12 +91,13 @@ rule concatenate_vcfs:
         tabix -p vcf {output[0]}
         """
 
+
 rule concatenate_genetic_map_plink:
     input:
         expand(
             "steps/maps/{{model}}/s{{seed}}_n{{n}}_{chrom}.plink.map",
             chrom=[f"chr{i+1}" for i in range(NUM_CHR)],
-        )
+        ),
     output:
         "steps/maps/{model}/s{seed}_n{n}.plink.map",
     shell:

@@ -2,15 +2,16 @@ rule gone2:
     input:
         invcf="steps/vcfs/{model}/s{seed}_n{n}.vcf.gz",
         inmap="steps/maps/{model}/s{seed}_n{n}.plink.map",
-        executable="external/gone2"
+        executable="external/gone2",
     output:
         estimate="steps/gone2/{model}/s{seed}_n{n}_GONE2_Ne",
         d2="steps/gone2/{model}/s{seed}_n{n}_GONE2_d2",
-        stats="steps/gone2/{model}/s{seed}_n{n}_GONE2_STATS"
+        stats="steps/gone2/{model}/s{seed}_n{n}_GONE2_STATS",
     log:
-        "log/gone2/{model}/s{seed}_n{n}.log"
+        "log/gone2/{model}/s{seed}_n{n}.log",
     threads: 4
-    shadow: "shallow"
+    shadow:
+        "shallow"
     shell:
         """
         zcat {input.invcf} > out.vcf

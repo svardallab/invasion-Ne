@@ -1,30 +1,45 @@
 # Workaround CALCUA VSC requirements about conda environments and containers
 COMMON = "calcua.sh"
-MODELS = ["constant_demography", "invasion_demography"]
+MODELS = ["constant_demography"]
 PROGRAMS = ["gone", "ibdne"]
-NUM_CHR = 15
+NUM_CHR = 24
 REPLICATES = 10
 SAMPLE_SIZES = [20, 200]
 
 
 include: "rules/simulations.smk"
+include: "rules/gone2.smk"
+include: "rules/ibdne.smk"
 
 
 rule all:
     input:
         expand(
-            r"steps/vcfs/{model}/s{seed}_n{n}_{chrom}.vcf.gz",
-            model=MODELS,
+            "steps/ibdne/{model}/s{seed}_n{n}.boot",
             seed=[100 + i for i in range(REPLICATES)],
             n=SAMPLE_SIZES,
-            chrom=[f"chr{i+1}" for i in range(NUM_CHR)],
-        ),
-        expand(
-            "steps/maps/{model}/s{seed}_n{n}_{chrom}{suffix}",
             model=MODELS,
-            seed=[100 + i for i in range(REPLICATES)],
-            n=SAMPLE_SIZES,
-            chrom=[f"chr{i+1}" for i in range(NUM_CHR)],
-            suffix = [".plink.map", ".shapeit.map"]
         ),
 
+
+        expand(
+            "results/estimates/gone2_{model}.csv",
+            model=MODELS
+        )
+
+
+rule aggregate_gone2:
+    input:
+        "workflow/scripts/aggregate_gone.R",
+        expand(
+            "steps/gone2/{{model}}/s{seed}_n{n}_GONE2_Ne",
+            seed=[100 + i for i in range(REPLICATES)],
+            n=SAMPLE_SIZES,
+        ),
+    output:
+        "results/estimates/gone2_{model}.csv",
+    shell:
+        """
+        source {COMMON}
+        Rscript {input} {output}
+        """

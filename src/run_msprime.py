@@ -21,7 +21,7 @@ def main(infile, seed, sample_size, output_files):
         sequence_length=sequence_length,
         recombination_rate=recombination_rate,
         random_seed=seed,
-        num_replicates=len(output_files)
+        num_replicates=len(output_files),
     )
     for outfile, ts in zip(output_files, replicates):
         # Compress output with tszip
@@ -30,7 +30,9 @@ def main(infile, seed, sample_size, output_files):
 
 if __name__ == "__main__":
     if len(sys.argv) <= 5:
-        print("Usage: python script.py <input_yaml> <seed> <sample_size> <output1> <output2> ...")
+        print(
+            "Usage: python script.py <input_yaml> <seed> <sample_size> <output1> <output2> ..."
+        )
         sys.exit(1)
 
     input_yaml = sys.argv[1]
