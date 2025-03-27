@@ -12,10 +12,24 @@ HAP_IBD_BIN = external/hap-ibd.jar
 # Custom version of gone 
 GONE_DIR = external/gone/PROGRAMMES
 GONE_BINS = $(GONE_DIR)/LD_SNP_REAL3 $(GONE_DIR)/SUMM_REP_CHROM3 $(GONE_DIR)/MANAGE_CHROMOSOMES2 $(GONE_DIR)/GONE $(GONE_DIR)/GONEaverage
+# Relate
+RELATE_STATIC_TAR = external/relate_v1.1.9_x86_64_static.tgz
+RELATE_STATIC_BIN = external/relate_v1.1.9_x86_64_static/bin/Relate
 
-.PHONY: deps clean gone
+.PHONY: deps clean gone lint
 
-deps: $(CONDA_ENV_PREFIX) $(SMCPP_FILE) $(IBDNE_BIN) $(HAP_IBD_BIN) gone
+deps: $(CONDA_ENV_PREFIX) $(SMCPP_FILE) $(IBDNE_BIN) $(HAP_IBD_BIN) gone $(RELATE_STATIC_DIR)
+
+run:
+	snakemake -c$(cores) --use-envmodules --sdm apptainer
+
+
+dry-run:
+	snakemake -n -c$(cores) --use-envmodules --sdm apptainer
+
+lint:
+	./external/conda_env/bin/black src/*.py
+	./external/conda_env/bin/snakefmt Snakefile
 
 $(CONDA_ENV_PREFIX): $(CONDA_ENV_YAML)
 	conda-containerize new --prefix $(CONDA_ENV_PREFIX) $(CONDA_ENV_YAML)
@@ -28,6 +42,9 @@ $(HAP_IBD_BIN):
 
 $(IBDNE_BIN):
 	wget $(IBDNE_URL) -O $(IBDNE_BIN)
+
+$(RELATE_STATIC_DIR): $(RELATE_STATIC_TAR)
+	tar -xvzf $(RELATE_STATIC_TAR) -C external/
 
 # Compile gone
 gone: $(GONE_BINS)
@@ -50,3 +67,4 @@ $(GONE_DIR)/GONEaverage: $(GONE_DIR)/GONEaverage.cpp
 clean: 
 	rm -rf $(CONDA_ENV_PREFIX) $(SMCPP_FILE)
 	rm -f $(GONE_BINS)
+	rm -rf $(RELATE_STATIC_DIR)
