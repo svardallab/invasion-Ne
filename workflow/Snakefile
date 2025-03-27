@@ -1,0 +1,30 @@
+# Workaround CALCUA VSC requirements about conda environments and containers
+COMMON = "calcua.sh"
+MODELS = ["constant_demography", "invasion_demography"]
+PROGRAMS = ["gone", "ibdne"]
+NUM_CHR = 15
+REPLICATES = 10
+SAMPLE_SIZES = [20, 200]
+
+
+include: "rules/simulations.smk"
+
+
+rule all:
+    input:
+        expand(
+            r"steps/vcfs/{model}/s{seed}_n{n}_{chrom}.vcf.gz",
+            model=MODELS,
+            seed=[100 + i for i in range(REPLICATES)],
+            n=SAMPLE_SIZES,
+            chrom=[f"chr{i+1}" for i in range(NUM_CHR)],
+        ),
+        expand(
+            "steps/maps/{model}/s{seed}_n{n}_{chrom}{suffix}",
+            model=MODELS,
+            seed=[100 + i for i in range(REPLICATES)],
+            n=SAMPLE_SIZES,
+            chrom=[f"chr{i+1}" for i in range(NUM_CHR)],
+            suffix = [".plink.map", ".shapeit.map"]
+        ),
+
