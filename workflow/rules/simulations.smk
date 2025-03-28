@@ -19,7 +19,7 @@ rule coalescence_simulation:
     output:
         expand(
             r"steps/trees/{{model}}/s{{seed,\d+}}_n{{n,\d+}}_{chrom}.trees.tsz",
-            chrom=[f"chr{i+1}" for i in range(NUM_CHR)],
+            chrom=[f"contig{i+1}" for i in range(NUM_CHR)],
         ),
     shell:
         """
@@ -74,12 +74,29 @@ rule shapeit_genetic_map:
         python {input} {wildcards.chrom} > {output}
         """
 
+rule region_file:
+    input:
+        "src/region_file.py",
+        expand(
+            "steps/trees/{{model}}/s{{seed}}_n{{n}}_{chrom}.trees.tsz",
+            chrom=[f"contig{i+1}" for i in range(NUM_CHR)],
+        ),
+    output:
+        "steps/regions/{model}/s{seed}_n{n}_region.txt",
+    params:
+        chrom=",".join([f"contig{i+1}" for i in range(NUM_CHR)])
+    shell:
+        """
+        source {COMMON}
+        python {input} {params.chrom} > {output}
+        """
+
 
 rule concatenate_vcfs:
     input:
         expand(
             "steps/vcfs/{{model}}/s{{seed}}_n{{n}}_{chrom}.vcf.gz",
-            chrom=[f"chr{i+1}" for i in range(NUM_CHR)],
+            chrom=[f"contig{i+1}" for i in range(NUM_CHR)],
         ),
     output:
         "steps/vcfs/{model}/s{seed}_n{n}.vcf.gz",
@@ -96,7 +113,7 @@ rule concatenate_genetic_map_plink:
     input:
         expand(
             "steps/maps/{{model}}/s{{seed}}_n{{n}}_{chrom}.plink.map",
-            chrom=[f"chr{i+1}" for i in range(NUM_CHR)],
+            chrom=[f"contig{i+1}" for i in range(NUM_CHR)],
         ),
     output:
         "steps/maps/{model}/s{seed}_n{n}.plink.map",

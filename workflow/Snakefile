@@ -10,6 +10,7 @@ SAMPLE_SIZES = [20, 200]
 include: "rules/simulations.smk"
 include: "rules/gone2.smk"
 include: "rules/ibdne.smk"
+include: "rules/hapne.smk"
 
 
 rule all:

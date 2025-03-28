@@ -11,9 +11,9 @@ def main(base_name):
     # Parameters
     Ne_present = 10_000
     Ne_anc = 15_000
-    time_inv = 500
+    time_inv = 75
     n_founders = 10
-    time_carrying = 200
+    time_carrying = 25
 
     # Compute growth rate
     alpha = -np.log(n_founders / Ne_present) / (time_inv - time_carrying)
