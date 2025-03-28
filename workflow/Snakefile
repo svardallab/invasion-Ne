@@ -15,16 +15,8 @@ include: "rules/ibdne.smk"
 rule all:
     input:
         expand(
-            "steps/ibdne/{model}/s{seed}_n{n}.boot",
-            seed=[100 + i for i in range(REPLICATES)],
-            n=SAMPLE_SIZES,
-            model=MODELS,
-        ),
-
-
-        expand(
-            "results/estimates/gone2_{model}.csv",
-            model=MODELS
+            "results/estimates/{method}_{model}.csv",
+            model=MODELS, method = ["gone2", "ibdne"]
         )
 
 
@@ -38,6 +30,22 @@ rule aggregate_gone2:
         ),
     output:
         "results/estimates/gone2_{model}.csv",
+    shell:
+        """
+        source {COMMON}
+        Rscript {input} {output}
+        """
+
+rule aggregate_ibdne:
+    input:
+        "workflow/scripts/aggregate_ibdne.R",
+        expand(
+            "steps/ibdne/{{model}}/s{seed}_n{n}.ne",
+            seed=[100 + i for i in range(REPLICATES)],
+            n=SAMPLE_SIZES,
+        ),
+    output:
+        "results/estimates/ibdne_{model}.csv",
     shell:
         """
         source {COMMON}

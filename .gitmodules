@@ -1,0 +1,3 @@
+[submodule "external/hapne-snakemake"]
+	path = external/hapne-snakemake
+	url = https://github.com/currocam/hapne-snakemake.git
