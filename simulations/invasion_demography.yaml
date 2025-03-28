@@ -3,6 +3,6 @@ generation_time: 1
 demes:
 - name: pop_0
   epochs:
-  - {end_time: 501, start_size: 15000}
-  - {end_time: 200, start_size: 9.77237220955811, end_size: 10000}
+  - {end_time: 76, start_size: 15000}
+  - {end_time: 25, start_size: 8.709635899560814, end_size: 10000}
   - {end_time: 0, start_size: 10000.0}

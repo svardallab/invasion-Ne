@@ -1,10 +1,10 @@
 # Workaround CALCUA VSC requirements about conda environments and containers
 COMMON = "calcua.sh"
-MODELS = ["constant_demography"]
-PROGRAMS = ["gone", "ibdne"]
+MODELS = ["constant_demography", "invasion_demography"]
+PROGRAMS = ["gone2", "ibdne", "hapne_ibd", "hapne_ld"]
 NUM_CHR = 24
-REPLICATES = 10
-SAMPLE_SIZES = [20, 200]
+REPLICATES = 25
+SAMPLE_SIZES = [20, 100, 200]
 
 
 include: "rules/simulations.smk"
@@ -17,7 +17,7 @@ rule all:
     input:
         expand(
             "results/estimates/{method}_{model}.csv",
-            model=MODELS, method = ["gone2", "ibdne"]
+            model=MODELS, method = PROGRAMS
         )
 
 
@@ -47,6 +47,38 @@ rule aggregate_ibdne:
         ),
     output:
         "results/estimates/ibdne_{model}.csv",
+    shell:
+        """
+        source {COMMON}
+        Rscript {input} {output}
+        """
+
+rule aggregate_hapne_ld:
+    input:
+        "workflow/scripts/aggregate_hapne_ld.R",
+        expand(
+            "steps/hapne/{{model}}/s{seed}_n{n}_ld_hapne_estimate.csv",
+            seed=[100 + i for i in range(REPLICATES)],
+            n=SAMPLE_SIZES,
+        ),
+    output:
+        "results/estimates/hapne_ld_{model}.csv",
+    shell:
+        """
+        source {COMMON}
+        Rscript {input} {output}
+        """
+
+rule aggregate_hapne_ibd:
+    input:
+        "workflow/scripts/aggregate_hapne_ibd.R",
+        expand(
+            "steps/hapne/{{model}}/s{seed}_n{n}_ibd_hapne_estimate.csv",
+            seed=[100 + i for i in range(REPLICATES)],
+            n=SAMPLE_SIZES,
+        ),
+    output:
+        "results/estimates/hapne_ibd_{model}.csv",
     shell:
         """
         source {COMMON}
