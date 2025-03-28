@@ -8,7 +8,7 @@ rule gone2:
         d2="steps/gone2/{model}/s{seed}_n{n}_GONE2_d2",
         stats="steps/gone2/{model}/s{seed}_n{n}_GONE2_STATS",
     log:
-        "log/gone2/{model}/s{seed}_n{n}.log",
+        "logs/gone2/{model}/s{seed}_n{n}.log",
     threads: 4
     shadow:
         "shallow"
