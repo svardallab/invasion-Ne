@@ -3,7 +3,7 @@ COMMON = "calcua.sh"
 MODELS = ["constant_demography", "invasion_demography"]
 PROGRAMS = ["gone2", "ibdne", "hapne_ibd", "hapne_ld"]
 NUM_CHR = 24
-REPLICATES = 25
+REPLICATES = 10
 SAMPLE_SIZES = [20, 100, 200]
 
 
@@ -18,7 +18,12 @@ rule all:
         expand(
             "results/estimates/{method}_{model}.csv",
             model=MODELS, method = PROGRAMS
-        )
+        ),
+        expand(
+            "simulations/{model}.csv",
+            model=MODELS
+        ),
+
 
 
 rule aggregate_gone2:

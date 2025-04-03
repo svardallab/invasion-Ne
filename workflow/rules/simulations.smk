@@ -1,4 +1,3 @@
-
 rule model:
     input:
         "src/{model}.py",
@@ -11,6 +10,17 @@ rule model:
         python {input} simulations/{wildcards.model}
         """
 
+rule population_size_trajectory:
+    input:
+        "src/population_size_trajectory.py",
+        "simulations/{model}.yaml",
+    output:
+        "simulations/{model}.csv",
+    shell:
+        """
+        source {COMMON}
+        python {input} > {output}
+        """
 
 rule coalescence_simulation:
     input:
