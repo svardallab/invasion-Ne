@@ -1,3 +1,4 @@
+SHELL:=/bin/bash
 # Everything that can be installed via conda is containerized here (Calcua VSC limitations)
 CONDA_ENV_PREFIX = external/conda_env
 CONDA_ENV_YAML = external/conda_env.yaml
@@ -21,7 +22,7 @@ MERGE_IBD_BIN = external/merge-ibd-segments.jar
 
 .PHONY: deps clean gone lint run
 
-deps: $(CONDA_ENV_PREFIX) $(GONE2_BIN) $(IBDNE_BIN) $(HAP_IBD_BIN) $(MERGE_IBD_BIN)
+deps: $(CONDA_ENV_PREFIX) $(GONE2_BIN) $(IBDNE_BIN) $(HAP_IBD_BIN) $(MERGE_IBD_BIN) $(BINLD_BIN)
 
 run:
 	snakemake -c$(cores) --use-envmodules --sdm apptainer
@@ -35,6 +36,7 @@ lint:
 
 # Dependencies
 $(CONDA_ENV_PREFIX): $(CONDA_ENV_YAML)
+	module load hpc-container-wrapper/0.4.0; \
 	conda-containerize new --prefix $(CONDA_ENV_PREFIX) $(CONDA_ENV_YAML)
 
 $(GONE2_BIN): $(GONE2_DIR)
@@ -55,5 +57,18 @@ $(IBDNE_BIN):
 $(MERGE_IBD_BIN):
 	wget $(MERGE_IBD_URL) -O $(MERGE_IBD_BIN)
 
-clean: 
+# Compile Rust code
+BINLD_DIR = external/ld_binning_src/
+BINLD_BIN = external/ld_binning
+
+$(BINLD_BIN): $(BINLD_DIR)
+	cd $(BINLD_DIR) && \
+	module load Rust && \
+	module load Clang && \
+	module load Perl && \
+	export CARGO_HOME=$(mktemp -d /tmp/cargo-home.XXXXXX) && \
+	cargo build --release && \
+	cp target/release/ld_binning ../../$(BINLD_BIN)
+
+clean:
 	rm -rf $(CONDA_ENV_PREFIX) $(GONE2_BIN) $(GONE2_DIR)

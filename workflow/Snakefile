@@ -1,0 +1,68 @@
+NUM_CHROMOSOMES = 2
+
+
+rule all:
+    input:
+        expand(
+            "steps/binned_ld/constant_recent_past/n5000/s100_chr1.csv",
+            seed=range(100, 110),
+        ),
+        expand(
+            "steps/binned_ld/constant_recent_past/n10000/s100_chr1.csv",
+            seed=range(100, 110),
+        ),
+
+
+rule measure_ld:
+    input:
+        "steps/vcfs/{prefix}/s{seed}_chr{i}.vcf.gz",
+        "steps/vcfs/{prefix}/s{seed}_chr{i}.vcf.gz.tbi",
+    output:
+        "steps/binned_ld/{prefix}/s{seed}_chr{i}.csv",
+    resources:
+        mem_mb=3000,
+        runtime="10min",
+    envmodules:
+        "calcua/2024a",
+        "Clang/18.1.8-GCCcore-13.3.0",
+    log:
+        "logs/binned_ld/{prefix}/s{seed}_chr{i}.log",
+    shell:
+        """
+        external/ld_binning {input[0]} > {output} 2> {log}
+        """
+
+
+rule tree_into_vcf:
+    input:
+        "steps/trees/{prefix}/s{seed}_chr{i}.trees",
+    output:
+        "steps/vcfs/{prefix}/s{seed}_chr{i}.vcf.gz",
+        "steps/vcfs/{prefix}/s{seed}_chr{i}.vcf.gz.tbi",
+    resources:
+        mem_mb=3000,
+        runtime="10min",
+    shell:
+        """
+        python -m tskit vcf --contig-id chr{wildcards.i} {input} | bgzip -c > {output[0]}
+        tabix -p vcf {output[0]}
+        """
+
+
+rule sim_constant_recent_past:
+    input:
+        "src/slim/constant_recent_past.py",
+    output:
+        expand(
+            "steps/trees/constant_recent_past/n{{n}}/s{{seed}}_chr{i}.trees",
+            i=range(NUM_CHROMOSOMES),
+        ),
+    resources:
+        mem_mb=3000,
+        runtime="2min",
+    log:
+        "logs/trees/constant_recent_past/n{n}/s{seed}.log",
+    shell:
+        """
+        python {input} {wildcards.seed} {wildcards.n} {output} > {log}
+        """
