@@ -1,14 +1,18 @@
 #![feature(portable_simd)]
-use anyhow::{bail, Context, Result};
-use clap::{command, Parser};
+use anyhow::{Context, Result, bail};
+use clap::{Parser, command};
 use indicatif::ProgressBar;
-use rust_htslib::bcf::{record, IndexedReader, Read, Record};
+use rand::distr::Uniform;
+use rand::prelude::*;
+use rand_chacha::ChaCha8Rng;
+use rust_htslib::bcf::header::HeaderRecord;
+use rust_htslib::bcf::{IndexedReader, Read, Record, record};
 use std::error::Error;
 
 // Parse the genotypes and compute the minor allele frequency
 fn precompute_standarized_genotypes(
     record: Record,
-    parameters: &HyperParameters,
+    parameters: &Cli,
     genotypes: &mut [f64],
 ) -> Result<Option<()>, Box<dyn Error>> {
     // Get the genotype field
@@ -48,11 +52,7 @@ fn precompute_standarized_genotypes(
     Ok(Some(()))
 }
 
-pub fn linkage_disequilibrium(
-    genotypes1: &[f64],
-    genotypes2: &[f64],
-    n_samples: usize,
-) -> f64 {
+pub fn linkage_disequilibrium(genotypes1: &[f64], genotypes2: &[f64], n_samples: usize) -> f64 {
     assert!(
         genotypes1.len() >= n_samples && genotypes2.len() >= n_samples,
         "Input length mismatch"
@@ -132,26 +132,30 @@ impl SufficientSummaryStats {
             ld_square: vec![0.0; bins.nbins],
         }
     }
-}
-
-struct HyperParameters {
-    pub recombination_rate: f64,
-    pub maf_threshold: f64,
-}
-
-impl HyperParameters {
-    pub fn new(recombination_rate: f64, maf_threshold: f64) -> Self {
-        Self {
-            recombination_rate,
-            maf_threshold,
+    pub fn should_stop(&self, args: &Cli) -> bool {
+        // First, check that all bins have at least the minimum number of samples
+        for count in self.counts.iter() {
+            if *count < args.min_loci as u32 {
+                return false;
+            }
         }
+        for i in 0..self.ld.len() {
+            // Compute sample standard deviation
+            let std = (self.ld_square[i] / (self.counts[i] - 1) as f64).sqrt();
+            // Compute the CI half-width
+            let ci_half_width = std / (self.counts[i] as f64).sqrt();
+            if ci_half_width * 1.96 > args.epsilon {
+                return false;
+            }
+        }
+        true
     }
 }
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    /// Compressed and indexed VCF file
+    /// Compressed and indexed VCF or BCF file
     infile: String,
 
     /// Recombination rate
@@ -165,66 +169,112 @@ struct Cli {
     /// Contig index
     #[arg(long, default_value_t = 0)]
     contig_index: u32,
+
+    /// Minimum number of loci per bin
+    #[arg(long, default_value_t = 2000)]
+    min_loci: usize,
+
+    /// Epsilon value for the CI Half-Width
+    #[arg(long, default_value_t = 0.0001)]
+    epsilon: f64,
+
+    /// Random seed
+    #[arg(long, default_value_t = 1234)]
+    seed: u64,
+}
+
+fn find_contig_length(records: Vec<rust_htslib::bcf::HeaderRecord>, rid: u32) -> Result<u64> {
+    let mut seen = 0;
+    for record in records {
+        if let HeaderRecord::Contig { values, .. } = record {
+            if seen < rid {
+                seen += 1;
+                continue;
+            }
+            if seen > rid {
+                break;
+            }
+            let contig_length = values.get("length").context("Contig length not found")?;
+            if let Ok(contig_length) = contig_length.parse::<u64>() {
+                return Ok(contig_length);
+            }
+        }
+    }
+    bail!("Contig not found")
 }
 
 fn main() -> Result<()> {
-    // Read from file so we can have two readers
+    // Read parameters from command line
     let args = Cli::parse();
     let src = &args.infile;
-    // Open the VCF (bgzipped and indexed)
-    let mut vcf1 = IndexedReader::from_path(src).context("Error opening VCF file")?;
-    let mut vcf2 = IndexedReader::from_path(src).context("Error opening VCF file")?;
-    // Get the header to resolve contig names to IDs
-    let header = vcf1.header().clone();
-    let parameters = HyperParameters::new(args.recombination_rate, args.maf_threshold);
+    let rid: u32 = args.contig_index;
+    // Open indexed VCF or BCF (better)
+    let mut file =
+        IndexedReader::from_path(src).with_context(|| format!("Error opening file {src}"))?;
+    // Get contig information
+    let header = file.header();
+    let records = header.header_records();
+    let contig_length = find_contig_length(records, rid)
+        .with_context(|| format!("Error finding contig length for the index {rid}"))?;
     // Initialize data structures
-    let bins = Bins::hapne_default(parameters.recombination_rate);
+    let bins = Bins::hapne_default(args.recombination_rate);
     let mut summary_stats = SufficientSummaryStats::new(&bins);
     let num_samples = header.samples().len();
     let mut genotypes1: Vec<f64> = vec![0.0; num_samples];
     let mut genotypes2: Vec<f64> = vec![0.0; num_samples];
     // Chromosome to analyze
-    let rid: u32 = args.contig_index;
-    vcf1.fetch(rid, 0, None)
-        .context("Error fetching the chromosome")?;
-    let num_records = vcf1.records().count();
-    vcf1.fetch(rid, 0, None)
-        .context("Error fetching the chromosome")?;
-    let pb = ProgressBar::new((num_records) as u64);
-    for record1 in vcf1.records() {
-        let record1 = record1.context("Error while reading record")?;
-        let pos1 = record1.pos();
-        // Parse the genotypes of the first record and compute the minor allele frequency
-        match precompute_standarized_genotypes(record1, &parameters, &mut genotypes1) {
+    let pb = ProgressBar::no_length();
+    pb.set_message("Starting iterations...");
+    let between = Uniform::try_from(0..contig_length).with_context(|| {
+        format!(
+            "Error creating uniform distribution from 0 to {contig_length}"
+        )
+    })?;
+    // Get an RNG:
+    let mut rng = ChaCha8Rng::seed_from_u64(args.seed);
+    loop {
+        // First, we draw a random position in the chromosome
+        let sampled = between.sample(&mut rng);
+        // Fetch the region from pos1 to pos1 + bins.maximum
+        file.fetch(rid, sampled, None)
+            .with_context(|| format!("Error fetching region {rid}:{sampled}:"))?;
+        let record1 = file.records().next();
+        if record1.is_none() {
+            // If there are no records in the region, we skip this iteration
+            continue;
+        }
+        let record1 = record1.unwrap().context("Error while reading record")?;
+        let pos1 = record1.pos() as u64;
+        match precompute_standarized_genotypes(record1, &args, &mut genotypes1) {
             Ok(Some(())) => {}
             Ok(None) => continue,
             Err(e) => {
                 bail!("Error parsing genotypes: {}", e);
             }
-        };
+        }
+        // Now, we fetch the region from pos1 + bins.minimum to pos1 + bins.maximum
+        let region = (pos1 + bins.minimum as u64, pos1 + bins.maximum as u64);
+        file.fetch(rid, region.0, Some(region.1))
+            .with_context(|| format!("Error fetching region {}:{}:{}", rid, region.0, region.1))?;
         // Most of the time, the second record will be in the first bin
         let mut index = 0;
-        // Fetch the second region of interest
-        vcf2.fetch(rid, (pos1 + bins.minimum) as u64, None)
-            .context("Error fetching second region")?;
-        for record2 in vcf2.records() {
+        for record2 in file.records() {
             let record2 = record2.context("Error while reading record")?;
-            let pos2 = record2.pos();
+            let pos2 = record2.pos() as u64;
             let distance = (pos2 - pos1) as f64;
-            if distance < (bins.minimum as f64) {
-                unreachable!("Distance is less than minimum");
+            if distance < (bins.minimum as f64) || distance > (bins.maximum as f64) {
+                unreachable!("Distance is less than minimum or greater than maximum");
             }
-            if distance > (bins.maximum as f64) {
-                break;
-            }
+            // Find current bin index
             while distance > bins.right_edges_in_bp[index] {
                 index += 1;
             }
             assert!(index < bins.nbins);
             assert!(bins.left_edges_in_bp[index] <= distance);
             assert!(bins.right_edges_in_bp[index] >= distance);
-            // Parse the genotypes of the second record
-            match precompute_standarized_genotypes(record2, &parameters, &mut genotypes2) {
+
+            // Parse the genotypes of the second record and skip if MAF is too low
+            match precompute_standarized_genotypes(record2, &args, &mut genotypes2) {
                 Ok(Some(())) => {}
                 Ok(None) => continue,
                 Err(e) => {
@@ -239,7 +289,11 @@ fn main() -> Result<()> {
             let delta2 = new_value - summary_stats.ld[index];
             summary_stats.ld_square[index] += delta * delta2;
         }
+        // Increment the progress bar
         pb.inc(1);
+        if summary_stats.should_stop(&args) {
+            break;
+        }
     }
     pb.finish_with_message("Done!");
     // Finalize the summary statistics
