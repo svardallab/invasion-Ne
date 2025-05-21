@@ -1,37 +1,76 @@
-NUM_CHROMOSOMES = 2
+NUM_CHROMOSOMES = 25
+# Workaround CALCUA VSC requirements about conda environments and containers
+COMMON = "calcua.sh"
 
+localrules: all, agglomerate_tables
+wildcard_constraints:
+    seed="\d+"
 
 rule all:
     input:
         expand(
-            "steps/binned_ld/constant_recent_past/n5000/s100_chr1.csv",
-            seed=range(100, 110),
+            "steps/binned_ld/constant_recent_past/n{pop}/s{seed}.csv",
+            seed=range(100, 106), pop = [5000, 10000, 15000]
         ),
         expand(
-            "steps/binned_ld/constant_recent_past/n10000/s100_chr1.csv",
-            seed=range(100, 110),
+            "steps/binned_ld/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}.csv",
+            seed=range(100, 106),
+            ne1 = [10000],
+            ne2 = [10, 100, 1000],
+            t_inv = [50]
         ),
+        expand(
+            "steps/inference/constant_model/constant_recent_past/n{pop}/s{seed}.nc",
+            seed=range(100, 106), pop = [5000, 10000, 15000]
+        ),
+
+rule agglomerate_tables:
+    input:
+        expand("steps/{{prefix}}/s{{seed}}_chr{i}.csv", i = range(NUM_CHROMOSOMES))
+    output:
+        "steps/{prefix}/s{seed}.csv"
+    shell:
+        """
+        cat {input} > {output}
+        """
 
 
 rule measure_ld:
     input:
-        "steps/vcfs/{prefix}/s{seed}_chr{i}.vcf.gz",
-        "steps/vcfs/{prefix}/s{seed}_chr{i}.vcf.gz.tbi",
+        "steps/bcfs/{prefix}/s{seed}_chr{i}.bcf",
+        "steps/bcfs/{prefix}/s{seed}_chr{i}.bcf.csi",
     output:
-        "steps/binned_ld/{prefix}/s{seed}_chr{i}.csv",
+        temp("steps/binned_ld/{prefix}/s{seed}_chr{i}.csv"),
     resources:
-        mem_mb=3000,
-        runtime="10min",
+        mem_mb=2000,
+        runtime="30min",
     envmodules:
         "calcua/2024a",
         "Clang/18.1.8-GCCcore-13.3.0",
-    log:
-        "logs/binned_ld/{prefix}/s{seed}_chr{i}.log",
+    params:
+        epsilon= 0.001
     shell:
         """
-        external/ld_binning {input[0]} > {output} 2> {log}
+        external/ld_binning {input[0]} --seed {wildcards.seed} --epsilon {params.epsilon} > {output}
         """
 
+rule tree_into_bcf:
+    input:
+        "steps/trees/{prefix}/s{seed}_chr{i}.trees",
+    output:
+        "steps/bcfs/{prefix}/s{seed}_chr{i}.bcf",
+        "steps/bcfs/{prefix}/s{seed}_chr{i}.bcf.csi",
+    resources:
+        mem_mb=3000,
+        runtime="30min",
+    conda:
+        "../external/conda_env.yaml"
+    shell:
+        """
+        source {COMMON}
+        python -m tskit vcf --contig-id chr{wildcards.i} {input} | bcftools view -O b > {output[0]}
+        bcftools index {output[0]}
+        """
 
 rule tree_into_vcf:
     input:
@@ -41,9 +80,12 @@ rule tree_into_vcf:
         "steps/vcfs/{prefix}/s{seed}_chr{i}.vcf.gz.tbi",
     resources:
         mem_mb=3000,
-        runtime="10min",
+        runtime="30min",
+    conda:
+        "../external/conda_env.yaml"
     shell:
         """
+        source {COMMON}
         python -m tskit vcf --contig-id chr{wildcards.i} {input} | bgzip -c > {output[0]}
         tabix -p vcf {output[0]}
         """
@@ -59,10 +101,63 @@ rule sim_constant_recent_past:
         ),
     resources:
         mem_mb=3000,
-        runtime="2min",
+        runtime="120min",
+    conda:
+        "../external/conda_env.yaml"
     log:
         "logs/trees/constant_recent_past/n{n}/s{seed}.log",
     shell:
         """
-        python {input} {wildcards.seed} {wildcards.n} {output} > {log}
+        source {COMMON}
+        python {input} {wildcards.seed} {wildcards.n} {output} 2> {log}
+        """
+
+rule sim_exponential_growth:
+    input:
+        "src/slim/exponential_growth.py",
+    output:
+        expand(
+            "steps/trees/exponential_growth/ne1_{{ne1}}_ne2_{{ne2}}_t{{t_inv}}/s{{seed}}_chr{i}.trees",
+            i=range(NUM_CHROMOSOMES),
+        ),
+    resources:
+        mem_mb=3000,
+        runtime="120min",
+    conda:
+        "../external/conda_env.yaml"
+    log:
+        "logs/trees/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}.log",
+    shell:
+        """
+        source {COMMON}
+        python {input} {wildcards.seed} {wildcards.ne1} {wildcards.ne2} {wildcards.t_inv} {output} 2> {log}
+        """
+
+# Fit constant population size
+
+rule fit_constant_population_size:
+    input:
+        "src/pymc/constant_population_nuts.py",
+        "steps/binned_ld/{prefix}/s{seed}.csv"
+    output:
+        "steps/inference/constant_model/{prefix}/s{seed}.nc"
+    resources:
+        mem_mb=2000,
+        runtime="10min",
+    threads: 2
+    conda:
+        "../external/conda_env.yaml"
+    log:
+        "logs/inference/constant_model/{prefix}/s{seed}.log",
+    params:
+        prior_mean=20_000,
+        prior_sd=10_000,
+        sample_size=200,
+    shell:
+        """
+        source {COMMON}
+        TMP_COMPILEDIR=$(mktemp -d)
+        export PYTENSOR_FLAGS="compiledir=${{TMP_COMPILEDIR}}"
+        python {input} {params.prior_mean} {params.prior_sd} {params.sample_size} {output} 2>&1 | tee {log}
+        rm -rf "${{TMP_COMPILEDIR}}"
         """

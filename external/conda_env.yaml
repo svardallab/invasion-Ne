@@ -29,3 +29,5 @@ dependencies:
     - numpy >=2.2.5,<3
     - arviz >=0.21.0,<0.22
     - snakemake-executor-plugin-slurm >=1.2.5,<2
+    - cmdstanpy >=1.2.5,<2
+    - pymc >=5.22,<6
