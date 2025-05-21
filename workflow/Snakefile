@@ -2,33 +2,55 @@ NUM_CHROMOSOMES = 25
 # Workaround CALCUA VSC requirements about conda environments and containers
 COMMON = "calcua.sh"
 
-localrules: all, agglomerate_tables
+
+localrules:
+    all,
+    agglomerate_tables,
+
+
 wildcard_constraints:
-    seed="\d+"
+    seed="\d+",
+
 
 rule all:
     input:
         expand(
             "steps/binned_ld/constant_recent_past/n{pop}/s{seed}.csv",
-            seed=range(100, 106), pop = [5000, 10000, 15000]
+            seed=range(100, 106),
+            pop=[5000, 10000, 15000],
         ),
         expand(
             "steps/binned_ld/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}.csv",
             seed=range(100, 106),
-            ne1 = [10000],
-            ne2 = [10, 100, 1000],
-            t_inv = [50]
+            ne1=[10000],
+            ne2=[10, 100, 1000],
+            t_inv=[50],
         ),
         expand(
-            "steps/inference/constant_model/constant_recent_past/n{pop}/s{seed}.nc",
-            seed=range(100, 106), pop = [5000, 10000, 15000]
+            "steps/inference/{model}/constant_recent_past/n{pop}/s{seed}.nc",
+            seed=range(100, 106),
+            pop=[5000, 10000, 15000],
+            model=["constant_model", "constant_piecewise_model"],
         ),
+        expand(
+            "steps/inference/{model}/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}.nc",
+            seed=range(100, 106),
+            ne1=[10000],
+            ne2=[10, 100, 1000],
+            t_inv=[50, 25, 75],
+            model=[
+                "constant_model",
+                "constant_piecewise_model",
+                "exponential_piecewise_model",
+            ],
+        ),
+
 
 rule agglomerate_tables:
     input:
-        expand("steps/{{prefix}}/s{{seed}}_chr{i}.csv", i = range(NUM_CHROMOSOMES))
+        expand("steps/{{prefix}}/s{{seed}}_chr{i}.csv", i=range(NUM_CHROMOSOMES)),
     output:
-        "steps/{prefix}/s{seed}.csv"
+        "steps/{prefix}/s{seed}.csv",
     shell:
         """
         cat {input} > {output}
@@ -48,11 +70,12 @@ rule measure_ld:
         "calcua/2024a",
         "Clang/18.1.8-GCCcore-13.3.0",
     params:
-        epsilon= 0.001
+        epsilon=0.001,
     shell:
         """
         external/ld_binning {input[0]} --seed {wildcards.seed} --epsilon {params.epsilon} > {output}
         """
+
 
 rule tree_into_bcf:
     input:
@@ -71,6 +94,7 @@ rule tree_into_bcf:
         python -m tskit vcf --contig-id chr{wildcards.i} {input} | bcftools view -O b > {output[0]}
         bcftools index {output[0]}
         """
+
 
 rule tree_into_vcf:
     input:
@@ -112,6 +136,7 @@ rule sim_constant_recent_past:
         python {input} {wildcards.seed} {wildcards.n} {output} 2> {log}
         """
 
+
 rule sim_exponential_growth:
     input:
         "src/slim/exponential_growth.py",
@@ -133,14 +158,14 @@ rule sim_exponential_growth:
         python {input} {wildcards.seed} {wildcards.ne1} {wildcards.ne2} {wildcards.t_inv} {output} 2> {log}
         """
 
-# Fit constant population size
 
+# Fit constant population size
 rule fit_constant_population_size:
     input:
         "src/pymc/constant_population_nuts.py",
-        "steps/binned_ld/{prefix}/s{seed}.csv"
+        "steps/binned_ld/{prefix}/s{seed}.csv",
     output:
-        "steps/inference/constant_model/{prefix}/s{seed}.nc"
+        "steps/inference/constant_model/{prefix}/s{seed}.nc",
     resources:
         mem_mb=2000,
         runtime="10min",
@@ -159,5 +184,74 @@ rule fit_constant_population_size:
         TMP_COMPILEDIR=$(mktemp -d)
         export PYTENSOR_FLAGS="compiledir=${{TMP_COMPILEDIR}}"
         python {input} {params.prior_mean} {params.prior_sd} {params.sample_size} {output} 2>&1 | tee {log}
+        rm -rf "${{TMP_COMPILEDIR}}"
+        """
+
+
+# Fit piecewise constant population
+rule fit_constant_piecewise_model:
+    input:
+        "src/pymc/constant_population_piecewise_nuts.py",
+        "steps/binned_ld/{prefix}/s{seed}.csv",
+    output:
+        "steps/inference/constant_piecewise_model/{prefix}/s{seed}.nc",
+    resources:
+        mem_mb=2000,
+        runtime="1h",
+    threads: 4
+    conda:
+        "../external/conda_env.yaml"
+    log:
+        "logs/inference/constant_piecewise_model/{prefix}/s{seed}.log",
+    params:
+        ne_prior_mean=20_000,
+        ne_prior_sd=10_000,
+        t0_prior_mean=50,
+        t0_prior_sd=30,
+        sample_size=200,
+    shell:
+        """
+        source {COMMON}
+        TMP_COMPILEDIR=$(mktemp -d)
+        export PYTENSOR_FLAGS="compiledir=${{TMP_COMPILEDIR}}"
+        python {input} {params.ne_prior_mean} {params.ne_prior_sd} \
+            {params.t0_prior_mean} {params.t0_prior_sd} \
+            {params.sample_size} {output} 2>&1 | tee {log}
+        rm -rf "${{TMP_COMPILEDIR}}"
+        """
+
+
+rule fit_exponential_piecewise_model:
+    input:
+        "src/pymc/exponential_piecewise_nuts.py",
+        "steps/binned_ld/{prefix}/s{seed}.csv",
+    output:
+        "steps/inference/exponential_piecewise_model/{prefix}/s{seed}.nc",
+    resources:
+        mem_mb=2000,
+        runtime="2h",
+    threads: 4
+    conda:
+        "../external/conda_env.yaml"
+    log:
+        "logs/inference/exponential_piecewise_model/{prefix}/s{seed}.log",
+    params:
+        ne1_prior_mean=15_000,
+        ne1_prior_sd=3000,
+        ne2_prior_mean=15_000,
+        ne2_prior_sd=1000,
+        t0_prior_mean=50,
+        t0_prior_sd=30,
+        alpha_prior_sd=0.1,
+        sample_size=200,
+    shell:
+        """
+        source {COMMON}
+        TMP_COMPILEDIR=$(mktemp -d)
+        export PYTENSOR_FLAGS="compiledir=${{TMP_COMPILEDIR}}"
+        python {input} {params.ne1_prior_mean} {params.ne1_prior_sd} \
+            {params.ne2_prior_mean} {params.ne2_prior_sd} \
+            {params.t0_prior_mean} {params.t0_prior_sd} {params.alpha_prior_sd} \
+            {params.sample_size} {output} 2>&1 | tee {log}
         rm -rf "${{TMP_COMPILEDIR}}"
         """
