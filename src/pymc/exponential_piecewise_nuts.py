@@ -109,6 +109,7 @@ def main(
     u_i = df_bins["left_bin"].values
     u_j = df_bins["right_bin"].values
     Nbins = len(df_bins)
+    Nchrom = Nrows // Nbins
     # Calculate expected_sigma2 per bin
     sigma2_per_bin = df.groupby("bin_index")["var"].mean().sort_index().values
     # Get bin indices for each row (make sure they match the ordered bins)
@@ -170,7 +171,7 @@ def main(
         )
         # Reshape log_lik to compute the pointwise log likelihood per chromosome
         pointwise_loglik = pm.Deterministic(
-            "log_likelihood", pt.sum(log_lik.reshape((-1, Nbins)), axis=1)
+            "log_likelihood", pt.sum(log_lik.reshape((-1, Nchrom)), axis=0)
         )
         pm.Potential("likelihood", pt.sum(pointwise_loglik))
 

@@ -91,7 +91,8 @@ rule tree_into_bcf:
     shell:
         """
         source {COMMON}
-        python -m tskit vcf --contig-id chr{wildcards.i} {input} | bcftools view -O b > {output[0]}
+        python -m tskit vcf --allow-position-zero --contig-id chr{wildcards.i} {input} \
+		| bcftools view -e 'POS=0' -O b > {output[0]}
         bcftools index {output[0]}
         """
 
@@ -229,7 +230,7 @@ rule fit_exponential_piecewise_model:
         "steps/inference/exponential_piecewise_model/{prefix}/s{seed}.nc",
     resources:
         mem_mb=2000,
-        runtime="2h",
+        runtime="3h",
     threads: 4
     conda:
         "../external/conda_env.yaml"
