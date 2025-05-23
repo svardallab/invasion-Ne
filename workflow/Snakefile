@@ -44,6 +44,44 @@ rule all:
                 "exponential_piecewise_model",
             ],
         ),
+        expand(
+            "steps/ibdne/constant_recent_past/n{pop}/s{seed}.ne",
+            seed=range(100, 106),
+            pop=[5000, 10000, 15000],
+        ),
+        expand(
+            "steps/ibdne/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}.ne",
+            seed=range(100, 106),
+            ne1=[10000],
+            ne2=[10, 100, 1000],
+            t_inv=[50, 25, 75],
+        ),
+        expand(
+            "steps/gone2/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}_GONE2_Ne",
+            seed=range(100, 106),
+            ne1=[10000],
+            ne2=[10, 100, 1000],
+            t_inv=[50, 25, 75],
+        ),
+        expand(
+            "steps/gone2/constant_recent_past/n{pop}/s{seed}_GONE2_Ne",
+            seed=range(100, 106),
+            pop=[5000, 10000, 15000],
+        ),
+        expand(
+            "steps/hapne/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}_{method}_hapne_estimate.csv",
+            seed=range(100, 106),
+            ne1=[10000],
+            ne2=[10, 100, 1000],
+            t_inv=[50, 25, 75],
+            method=["ld", "ibd"],
+        ),
+        expand(
+            "steps/hapne/constant_recent_past/n{pop}/s{seed}_{method}_hapne_estimate.csv",
+            seed=range(100, 106),
+            pop=[5000, 10000, 15000],
+            method=["ld", "ibd"],
+        ),
 
 
 rule agglomerate_tables:
@@ -92,7 +130,7 @@ rule tree_into_bcf:
         """
         source {COMMON}
         python -m tskit vcf --allow-position-zero --contig-id chr{wildcards.i} {input} \
-		| bcftools view -e 'POS=0' -O b > {output[0]}
+        | bcftools view -e 'POS=0' -O b > {output[0]}
         bcftools index {output[0]}
         """
 
@@ -230,7 +268,7 @@ rule fit_exponential_piecewise_model:
         "steps/inference/exponential_piecewise_model/{prefix}/s{seed}.nc",
     resources:
         mem_mb=2000,
-        runtime="3h",
+        runtime="4h",
     threads: 4
     conda:
         "../external/conda_env.yaml"
@@ -243,7 +281,7 @@ rule fit_exponential_piecewise_model:
         ne2_prior_sd=1000,
         t0_prior_mean=50,
         t0_prior_sd=30,
-        alpha_prior_sd=0.1,
+        alpha_logfold_prior_sd=1,
         sample_size=200,
     shell:
         """
@@ -252,7 +290,227 @@ rule fit_exponential_piecewise_model:
         export PYTENSOR_FLAGS="compiledir=${{TMP_COMPILEDIR}}"
         python {input} {params.ne1_prior_mean} {params.ne1_prior_sd} \
             {params.ne2_prior_mean} {params.ne2_prior_sd} \
-            {params.t0_prior_mean} {params.t0_prior_sd} {params.alpha_prior_sd} \
+            {params.t0_prior_mean} {params.t0_prior_sd} {params.alpha_logfold_prior_sd} \
             {params.sample_size} {output} 2>&1 | tee {log}
         rm -rf "${{TMP_COMPILEDIR}}"
+        """
+
+
+# Run GONE2
+rule gone2:
+    input:
+        inbcfs=expand(
+            "steps/bcfs/{{prefix}}/s{{seed}}_chr{i}.bcf", i=range(NUM_CHROMOSOMES)
+        ),
+        executable="external/gone2",
+        plink_map_script="src/utils/plink_map.py",
+    output:
+        estimate="steps/gone2/{prefix}/s{seed}_GONE2_Ne",
+        d2="steps/gone2/{prefix}/s{seed}_GONE2_d2",
+        stats="steps/gone2/{prefix}/s{seed}_GONE2_STATS",
+    log:
+        "logs/gone2/{prefix}/s{seed}.log",
+    resources:
+        runtime="4h",
+    threads: 8
+    params:
+        recombination_rate=1e-8,
+        max_loci=4000000,  # Twice the default value
+    shadow:
+        "shallow"
+    envmodules:
+        "calcua/2024a",
+        "foss/2024a",
+        "BCFtools/1.21-GCC-13.3.0",
+        "Python/3.12.3-GCCcore-13.3.0",
+    shell:
+        """
+        # Create temporary BCF file
+        bcftools concat {input.inbcfs} -O b > out.bcf
+        # Take a random sample of max_loci using shuf
+        bcftools index out.bcf
+        bcftools query -f '%CHROM\t%POS\n' out.bcf > all_snps.txt
+        shuf --random-source=<(yes {wildcards.seed}) \
+            -n {params.max_loci} all_snps.txt | \
+            awk '{{print $1 "\t" $2}}' > regions.txt
+        rm all_snps.txt
+        bcftools view -R regions.txt -O v -o out.vcf out.bcf
+        rm out.bcf
+        python {input.plink_map_script} {params.recombination_rate} < out.vcf > out.map
+        {input.executable} -r 1.0 -t {threads} -g 0 out.vcf &> {log}
+        mv *_GONE2_Ne {output.estimate}
+        mv *_GONE2_d2 {output.d2}
+        mv *_GONE2_STATS {output.stats}
+        """
+
+
+rule ibd_ne:
+    input:
+        inbcfs=expand(
+            "steps/bcfs/{{prefix}}/s{{seed}}_chr{i}.bcf", i=range(NUM_CHROMOSOMES)
+        ),
+        executable_hapibd="external/hap-ibd.jar",
+        executable_postprocess="external/merge-ibd-segments.jar",
+        executable_ibdne="external/ibdne.jar",
+        plink_map_script="src/utils/plink_map.py",
+    output:
+        ibds="steps/ibdne/{prefix}/s{seed}.ibd.gz",
+        hbd="steps/ibdne/{prefix}/s{seed}.hbd.gz",
+        ibd_postprocessed="steps/ibdne/{prefix}/s{seed}.postprocessed.ibd",
+        pair_excl="steps/ibdne/{prefix}/s{seed}.pair.excl",
+        region_excl="steps/ibdne/{prefix}/s{seed}.region.excl",
+        estimate="steps/ibdne/{prefix}/s{seed}.ne",
+        boot="steps/ibdne/{prefix}/s{seed}.boot",
+    log:
+        "logs/ibdne/{prefix}/s{seed}.log",
+    shadow:
+        "minimal"
+    threads: 2
+    resources:
+        runtime="1h",
+    envmodules:
+        "calcua/2024a",
+        "BCFtools/1.21-GCC-13.3.0",
+        "Java/21.0.5",
+    params:
+        recombination_rate=1e-8,
+        gap=0.6,
+        discord=1,
+    shell:
+        """
+        echo "Starting IBDNE pipeline..." >> {log}
+        echo "Concatenating input VCF files..." >> {log}
+        bcftools concat {input.inbcfs} -O z > in.vcf.gz
+        echo "Building plink genetic map..." >> {log}
+        bcftools view --header-only in.vcf.gz | python {input.plink_map_script} {params.recombination_rate} > in.map
+        echo "Running HapIBD..." >> {log}
+        java -jar {input.executable_hapibd} \
+            gt=in.vcf.gz map=in.map out=steps/ibdne/{wildcards.prefix}/s{wildcards.seed} \
+            nthreads={threads}
+        cat steps/ibdne/{wildcards.prefix}/s{wildcards.seed}.log >> {log}
+        echo "HapIBD completed" >> {log}
+        echo "Post-processing IBD file..." >> {log}
+        gunzip -c steps/ibdne/{wildcards.prefix}/s{wildcards.seed}.ibd.gz | \
+            java -jar {input.executable_postprocess} in.vcf.gz in.map \
+            {params.gap} {params.discord} > "steps/ibdne/{wildcards.prefix}/s{wildcards.seed}.postprocessed.ibd"
+        echo "Post-processing completed" >> {log}
+        echo "Running IBDNE..." >> {log}
+        cat {output.ibd_postprocessed} | java -jar {input.executable_ibdne} out=out \
+            seed={wildcards.seed} map=in.map nthreads={threads}
+        cat *.log >> {log}
+        mv *.pair.excl {output.pair_excl}
+        mv *.region.excl {output.region_excl}
+        mv *.ne {output.estimate}
+        mv *.boot {output.boot}
+        """
+
+
+rule run_hapne_ld:
+    input:
+        intrees=expand(
+            "steps/trees/{{prefix}}/s{{seed}}_chr{i}.trees", i=range(NUM_CHROMOSOMES)
+        ),
+        plink_tskit="src/utils/tskit_vcf_export.py",
+        dir="external/hapne-snakemake",
+    output:
+        table="steps/hapne/{prefix}/s{seed}_ld_hapne_estimate.csv",
+        summary="steps/hapne/{prefix}/s{seed}_ld_hapne_summary.txt",
+        residuals="steps/hapne/{prefix}/s{seed}_ld_hapne_residuals.png",
+        popsize="steps/hapne/{prefix}/s{seed}_ld_hapne_pop_trajectory.png",
+    log:
+        "logs/hapne_ld/{prefix}/s{seed}.log",
+    shadow:
+        "shallow"
+    threads: 8
+    resources:
+        runtime="4h",
+    params:
+        rate=1e-8 * 100 * 1e6,
+        sequence_length=int(1e8),
+        cmlength=100,
+    shell:
+        """
+        source {COMMON}
+        cp -r {input.dir} hapne_analysis
+        mkdir -p hapne_analysis/data
+        # Process each input BCF file:
+        for tree in {input.intrees}; do
+            base=$(basename "$tree" .trees)
+            chromosome=$(echo "$base" | sed 's/s{wildcards.seed}_//')
+            echo "Processing $tree as $base" >> {log}
+            python {input.plink_tskit} $tree $chromosome | bgzip -c > hapne_analysis/data/$chromosome.vcf.gz
+            echo "pposition rrate gposition" > hapne_analysis/data/$chromosome.shapeit.map
+            echo "1 {params.rate} 0.0" >> hapne_analysis/data/$chromosome.shapeit.map
+            echo "{params.sequence_length} {params.rate} {params.cmlength}" >> hapne_analysis/data/$chromosome.shapeit.map
+        done
+        cd hapne_analysis
+        snakemake -c {threads} --config \
+            data_dir='data/' out_dir='results/' \
+            map_file_suffix='.shapeit.map' \
+            plink_extra_flags='-chr-set 25 no-xy no-mt' \
+            method='ld' 2>> ../{log}
+        cd ..
+        mv hapne_analysis/results/*_estimate.csv {output.table}
+        mv hapne_analysis/results/*_summary.txt {output.summary}
+        mv hapne_analysis/results/*_residuals.png {output.residuals}
+        mv hapne_analysis/results/*_trajectory.png {output.popsize}
+        """
+
+
+rule run_hapne_ibd:
+    input:
+        intrees=expand(
+            "steps/trees/{{prefix}}/s{{seed}}_chr{i}.trees", i=range(NUM_CHROMOSOMES)
+        ),
+        plink_tskit="src/utils/tskit_vcf_export.py",
+        plink_map_script="src/utils/plink_map.py",
+        dir="external/hapne-snakemake",
+    output:
+        table="steps/hapne/{prefix}/s{seed}_ibd_hapne_estimate.csv",
+        summary="steps/hapne/{prefix}/s{seed}_ibd_hapne_summary.txt",
+        residuals="steps/hapne/{prefix}/s{seed}_ibd_hapne_residuals.png",
+        popsize="steps/hapne/{prefix}/s{seed}_ibd_hapne_pop_trajectory.png",
+    log:
+        "logs/hapne_ibd/{prefix}/s{seed}.log",
+    shadow:
+        "shallow"
+    threads: 8
+    resources:
+        runtime="2h",
+    envmodules:
+        "calcua/2024a",
+        "Java/21.0.5",
+    params:
+        recombination_rate=1e-8,
+        sequence_length=int(1e8),
+        cmlength=100,
+    shell:
+        """
+        source {COMMON}
+        cp -r {input.dir} hapne_analysis
+        mkdir -p hapne_analysis/data
+        echo "CHR\tFROM_BP\tTO_BP\tNAME\tLENGTH" > hapne_analysis/data/build.txt
+        # Process each input BCF file:
+        for tree in {input.intrees}; do
+            base=$(basename "$tree" .trees)
+            chromosome=$(echo "$base" | sed 's/s{wildcards.seed}_//')
+            echo "Processing $tree as $base" >> {log}
+            python {input.plink_tskit} $tree $chromosome | bgzip -c > hapne_analysis/data/$chromosome.vcf.gz
+            bcftools view --header-only \
+                hapne_analysis/data/$chromosome.vcf.gz | \
+                python {input.plink_map_script} {params.recombination_rate}\
+                > hapne_analysis/data/$chromosome.plink.map
+            echo "$chromosome\t0\t{params.sequence_length}\t$chromosome\t{params.cmlength}" >> hapne_analysis/data/build.txt
+        done
+        cd hapne_analysis
+        cat data/build.txt >> ../{log}
+        snakemake -c {threads} --config \
+            data_dir='data/' out_dir='results/' \
+            map_file_suffix='.plink.map' \
+            method='ibd' genome_build='data/build.txt' 2>> ../{log}
+        cd ..
+        mv hapne_analysis/results/*_estimate.csv {output.table}
+        mv hapne_analysis/results/*_summary.txt {output.summary}
+        mv hapne_analysis/results/*_residuals.png {output.residuals}
+        mv hapne_analysis/results/*_trajectory.png {output.popsize}
         """

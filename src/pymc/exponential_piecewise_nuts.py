@@ -86,7 +86,7 @@ def main(
     ne2_prior_sd: float,
     t0_prior_mean: float,
     t0_prior_sd: float,
-    alpha_prior_sd: float,
+    alpha_logfold_prior_sd: float,
     sample_size: int,
     outfile: str,
 ) -> None:
@@ -138,9 +138,9 @@ def main(
         # Prior for alpha
         # We have to restrict combination that lead to a Ne(t0) < 1
         alpha_raw = pm.TruncatedNormal(
-            "alpha_raw", mu=0, sigma=1, upper=pt.log(Ne1) / t0 / alpha_prior_sd
+            "alpha_raw", mu=0, sigma=1, upper=pt.log(Ne1) / alpha_logfold_prior_sd
         )
-        alpha = pm.Deterministic("alpha", alpha_raw * alpha_prior_sd)
+        alpha = pm.Deterministic("alpha", alpha_raw * alpha_logfold_prior_sd / t0)
         founders = pm.Deterministic("founders", Ne1 * pt.exp(-alpha * t0))
 
         # Numerical integration across both time (0->Inf) and bin
@@ -176,7 +176,7 @@ def main(
         pm.Potential("likelihood", pt.sum(pointwise_loglik))
 
         # Sample from the posterior
-        idata = pm.sample(chains=4, tune=10_000, draws=5000, target_accept=0.90)
+        idata = pm.sample(chains=4, tune=15_000, draws=10_000, target_accept=0.90)
         # Add log_likelihood to its own group
         idata.add_groups(log_likelihood=idata.posterior.log_likelihood)
         # and remove it from the posterior group
@@ -195,7 +195,7 @@ def main(
 if __name__ == "__main__":
     if len(sys.argv) < 9:
         print(
-            "Usage: python constant_population_piecewise_nuts.py <input_file> <ne1_prior_mean> <ne1_prior_sd> <ne2_prior_mean> <ne2_prior_sd> <t0_prior_mean> <t0_prior_sd> <alpha_prior_sd> <sample_size> <output_file>"
+            "Usage: python constant_population_piecewise_nuts.py <input_file> <ne1_prior_mean> <ne1_prior_sd> <ne2_prior_mean> <ne2_prior_sd> <t0_prior_mean> <t0_prior_sd> <alpha_logfold_prior_sd> <sample_size> <output_file>"
         )
         sys.exit(1)
     infile = sys.argv[1]
@@ -205,7 +205,7 @@ if __name__ == "__main__":
     ne2_prior_sd = float(sys.argv[5])
     t0_prior_mean = float(sys.argv[6])
     t0_prior_sd = float(sys.argv[7])
-    alpha_prior_sd = float(sys.argv[8])
+    alpha_logfold_prior_sd = float(sys.argv[8])
     sample_size = int(sys.argv[9])
     outfile = sys.argv[10]
     main(
@@ -216,7 +216,7 @@ if __name__ == "__main__":
         ne2_prior_sd,
         t0_prior_mean,
         t0_prior_sd,
-        alpha_prior_sd,
+        alpha_logfold_prior_sd,
         sample_size,
         outfile,
     )
