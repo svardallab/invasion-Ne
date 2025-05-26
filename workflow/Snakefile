@@ -291,7 +291,7 @@ rule fit_exponential_piecewise_model:
         python {input} {params.ne1_prior_mean} {params.ne1_prior_sd} \
             {params.ne2_prior_mean} {params.ne2_prior_sd} \
             {params.t0_prior_mean} {params.t0_prior_sd} {params.alpha_logfold_prior_sd} \
-            {params.sample_size} {output} 2>&1 | tee {log}
+            {params.sample_size} {wildcards.seed} {output} 2>&1 | tee {log}
         rm -rf "${{TMP_COMPILEDIR}}"
         """
 
@@ -367,7 +367,7 @@ rule ibd_ne:
     threads: 4
     resources:
         mem_mb=16000,
-        runtime="1h",
+        runtime="2h",
     envmodules:
         "calcua/2024a",
         "BCFtools/1.21-GCC-13.3.0",
