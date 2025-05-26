@@ -12,4 +12,9 @@ if __name__ == "__main__":
     n_dip_indv = int(ts.num_samples / 2)
     indv_names = [f"tsk_{i}indv" for i in range(n_dip_indv)]
     with open("/dev/stdout", "w") as vcf_file:
-        ts.write_vcf(vcf_file, individual_names=indv_names, contig_id=contig_id)
+        ts.write_vcf(
+            vcf_file,
+            individual_names=indv_names,
+            contig_id=contig_id,
+            allow_position_zero=True,
+        )

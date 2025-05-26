@@ -314,7 +314,7 @@ rule gone2:
         runtime="4h",
     threads: 8
     params:
-        recombination_rate=1e-8,
+        rate=1.0,
         max_loci=4000000,  # Twice the default value
     shadow:
         "shallow"
@@ -336,8 +336,7 @@ rule gone2:
         rm all_snps.txt
         bcftools view -R regions.txt -O v -o out.vcf out.bcf
         rm out.bcf
-        python {input.plink_map_script} {params.recombination_rate} < out.vcf > out.map
-        {input.executable} -r 1.0 -t {threads} -g 0 out.vcf &> {log}
+        {input.executable} -r {params.rate} -t {threads} out.vcf &> {log}
         mv *_GONE2_Ne {output.estimate}
         mv *_GONE2_d2 {output.d2}
         mv *_GONE2_STATS {output.stats}
@@ -365,8 +364,9 @@ rule ibd_ne:
         "logs/ibdne/{prefix}/s{seed}.log",
     shadow:
         "minimal"
-    threads: 2
+    threads: 4
     resources:
+        mem_mb=16000,
         runtime="1h",
     envmodules:
         "calcua/2024a",
@@ -384,7 +384,7 @@ rule ibd_ne:
         echo "Building plink genetic map..." >> {log}
         bcftools view --header-only in.vcf.gz | python {input.plink_map_script} {params.recombination_rate} > in.map
         echo "Running HapIBD..." >> {log}
-        java -jar {input.executable_hapibd} \
+        java -Xmx15g -jar {input.executable_hapibd} \
             gt=in.vcf.gz map=in.map out=steps/ibdne/{wildcards.prefix}/s{wildcards.seed} \
             nthreads={threads}
         cat steps/ibdne/{wildcards.prefix}/s{wildcards.seed}.log >> {log}
@@ -438,7 +438,9 @@ rule run_hapne_ld:
             base=$(basename "$tree" .trees)
             chromosome=$(echo "$base" | sed 's/s{wildcards.seed}_//')
             echo "Processing $tree as $base" >> {log}
-            python {input.plink_tskit} $tree $chromosome | bgzip -c > hapne_analysis/data/$chromosome.vcf.gz
+            python {input.plink_tskit} $tree $chromosome \
+                | bcftools view -e 'POS=0' -O z \
+                > hapne_analysis/data/$chromosome.vcf.gz
             echo "pposition rrate gposition" > hapne_analysis/data/$chromosome.shapeit.map
             echo "1 {params.rate} 0.0" >> hapne_analysis/data/$chromosome.shapeit.map
             echo "{params.sequence_length} {params.rate} {params.cmlength}" >> hapne_analysis/data/$chromosome.shapeit.map
@@ -495,7 +497,9 @@ rule run_hapne_ibd:
             base=$(basename "$tree" .trees)
             chromosome=$(echo "$base" | sed 's/s{wildcards.seed}_//')
             echo "Processing $tree as $base" >> {log}
-            python {input.plink_tskit} $tree $chromosome | bgzip -c > hapne_analysis/data/$chromosome.vcf.gz
+            python {input.plink_tskit} $tree $chromosome \
+                | bcftools view -e 'POS=0' -O z \
+                > hapne_analysis/data/$chromosome.vcf.gz
             bcftools view --header-only \
                 hapne_analysis/data/$chromosome.vcf.gz | \
                 python {input.plink_map_script} {params.recombination_rate}\
