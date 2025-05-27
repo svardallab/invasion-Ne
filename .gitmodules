@@ -1,3 +1,6 @@
 [submodule "external/hapne-snakemake"]
 	path = external/hapne-snakemake
 	url = https://github.com/currocam/hapne-snakemake.git
+[submodule "external/GONE2"]
+	path = external/GONE2
+	url = https://github.com/esrud/GONE2

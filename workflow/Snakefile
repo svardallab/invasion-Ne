@@ -45,18 +45,18 @@ rule all:
             ne2=[10, 100, 1000],
             t_inv=[50, 25, 75],
         ),
-#        expand(
-#            "steps/gone2/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}_GONE2_Ne",
-#            seed=range(100, 106),
-#            ne1=[10000],
-#            ne2=[10, 100, 1000],
-#            t_inv=[50, 25, 75],
-#        ),
-#        expand(
-#            "steps/gone2/constant_recent_past/n{pop}/s{seed}_GONE2_Ne",
-#            seed=range(100, 106),
-#            pop=[5000, 10000, 15000],
-#        ),
+        expand(
+            "steps/gone2/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}_GONE2_Ne",
+            seed=range(100, 106),
+            ne1=[10000],
+            ne2=[10, 100, 1000],
+            t_inv=[50, 25, 75],
+        ),
+        expand(
+            "steps/gone2/constant_recent_past/n{pop}/s{seed}_GONE2_Ne",
+            seed=range(100, 106),
+            pop=[5000, 10000, 15000],
+        ),
         expand(
             "steps/hapne/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}_{method}_hapne_estimate.csv",
             seed=range(100, 106),
@@ -299,6 +299,38 @@ rule fit_exponential_piecewise_model:
         rm -rf "${{TMP_COMPILEDIR}}"
         """
 
+rule fit_exponential_piecewise_nuts_fixed:
+    input:
+        "src/pymc/exponential_piecewise_nuts_fixed.py",
+        "steps/binned_ld/{prefix}/s{seed}.csv",
+        "steps/inference/ballpark_ne/{prefix}/s{seed}.csv"
+    output:
+        "steps/inference/exponential_piecewise_nuts_fixed/{prefix}/s{seed}.nc",
+    resources:
+        mem_mb=2000,
+        runtime="4h",
+    threads: 4
+    conda:
+        "../external/conda_env.yaml"
+    log:
+        "logs/inference/exponential_piecewise_nuts_fixed/{prefix}/s{seed}.log",
+    params:
+        ne1_prior_mean=20_000,
+        ne1_prior_sd=10_000,
+        t0_prior_mean=50,
+        t0_prior_sd=30,
+        alpha_logfold_prior_sd=1,
+        sample_size=200,
+    shell:
+        """
+        source {COMMON}
+        TMP_COMPILEDIR=$(mktemp -d)
+        export PYTENSOR_FLAGS="compiledir=${{TMP_COMPILEDIR}}"
+        python {input} {params.ne1_prior_mean} {params.ne1_prior_sd} \
+            {params.t0_prior_mean} {params.t0_prior_sd} {params.alpha_logfold_prior_sd} \
+            {params.sample_size} {wildcards.seed} {output} 2>&1 | tee {log}
+        rm -rf "${{TMP_COMPILEDIR}}"
+        """
 
 # Run GONE2
 rule gone2:
@@ -307,7 +339,6 @@ rule gone2:
             "steps/bcfs/{{prefix}}/s{{seed}}_chr{i}.bcf", i=range(NUM_CHROMOSOMES)
         ),
         executable="external/gone2",
-        plink_map_script="src/utils/plink_map.py",
     output:
         estimate="steps/gone2/{prefix}/s{seed}_GONE2_Ne",
         d2="steps/gone2/{prefix}/s{seed}_GONE2_d2",
@@ -315,38 +346,53 @@ rule gone2:
     log:
         "logs/gone2/{prefix}/s{seed}.log",
     resources:
-        runtime="4h",
+        runtime="2h",
     threads: 8
     params:
         rate=1.0,
-        max_loci=4000000,  # Twice the default value
+        # We randomly subsample the chromosomes
+        # Default maximum number of SNPs is 2e6, in the issue below the authors argue
+        # no more than 50000 SNPs are needed
+        # https://github.com/esrud/GONE/issues/40
+        # Take 50_000 random SNPs per chromosome
+        max_loci_per_chr=50000,
     shadow:
         "shallow"
     envmodules:
         "calcua/2024a",
         "foss/2024a",
         "BCFtools/1.21-GCC-13.3.0",
-        "Python/3.12.3-GCCcore-13.3.0",
+        "parallel/20240722-GCCcore-13.3.0"
     shell:
         """
-        # Create temporary BCF file
-        bcftools concat {input.inbcfs} -O b > out.bcf
-        # Take a random sample of max_loci using shuf
-        bcftools index out.bcf
-        bcftools query -f '%CHROM\t%POS\n' out.bcf > all_snps.txt
-        shuf --random-source=<(yes {wildcards.seed}) \
-            -n {params.max_loci} all_snps.txt | \
-            awk '{{print $1 "\t" $2}}' > regions.txt
-        rm all_snps.txt
-        bcftools view -R regions.txt -O v -o out.vcf out.bcf
-        rm out.bcf
-        {input.executable} -r {params.rate} -t {threads} out.vcf &> {log}
+        exec &> {log}
+
+        echo "Processing chromosomes in parallel..."
+        echo "{input.inbcfs}" | tr ' ' '\\n' | parallel --jobs {threads} '
+            chr_bcf={{}} ;
+            chr_id=$(basename $chr_bcf | sed "s/.*chr\\([0-9XY]\\+\\).bcf/\\1/") ;
+            echo "Processing chromosome $chr_id" ;
+            bcftools index $chr_bcf ;
+            bcftools query -f "%CHROM\\t%POS\\n" $chr_bcf > snps_$chr_id.txt ;
+            shuf --random-source=<(yes {wildcards.seed}) \\
+                -n {params.max_loci_per_chr} snps_$chr_id.txt | \\
+                awk "{{print \\$1 \\"\\t\\" \\$2}}" > regions_$chr_id.txt ;
+            bcftools view -R regions_$chr_id.txt -O v -o chr_$chr_id.vcf $chr_bcf ;
+            rm snps_$chr_id.txt regions_$chr_id.txt ;
+            echo "Finished chromosome $chr_id"
+        '
+        echo "Concatenating VCF files..."
+        bcftools concat chr_*.vcf -O v -o out.vcf
+        rm chr_*.vcf
+        echo "Running GONE2..."
+        {input.executable} -S {wildcards.seed} -r {params.rate} -t {threads} out.vcf
+        echo "Moving output files..."
         mv *_GONE2_Ne {output.estimate}
         mv *_GONE2_d2 {output.d2}
         mv *_GONE2_STATS {output.stats}
+        rm out.vcf
+        echo "Done"
         """
-
-
 rule ibd_ne:
     input:
         inbcfs=expand(

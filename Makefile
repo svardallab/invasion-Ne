@@ -4,13 +4,14 @@ CONDA_ENV_PREFIX = external/conda_env
 CONDA_ENV_YAML = external/conda_env.yaml
 
 # GONE2 compilation settings
-GONE2_REPO = https://github.com/esrud/GONE2
-GONE2_DIR = external/GONE2
+GONE2_DIR = external/GONE2/
+# See https://github.com/esrud/GONE2/issues/4
+GONE2_HASH = 81915701aef063fdaab6e9e7f625098888b7b669
 GONE2_BIN = external/gone2
 
 # Compilation flags for increased loci
-MAXLOCI = 4000000
-MAXIND = 1000
+MAXLOCI = 10000000
+MAXIND = 200
 
 # Download java executables from Browning lab
 IBDNE_URL = https://faculty.washington.edu/browning/ibdne/ibdne.23Apr20.ae9.jar
@@ -40,13 +41,13 @@ $(CONDA_ENV_PREFIX): $(CONDA_ENV_YAML)
 	conda-containerize new --prefix $(CONDA_ENV_PREFIX) $(CONDA_ENV_YAML)
 
 $(GONE2_BIN): $(GONE2_DIR)
+	module purge && \
+	module load calcua/2024a && \
+	module load foss/2024a && \
 	cd $(GONE2_DIR) && \
+	git checkout $(GONE2_HASH) && \
     make MAXLOCI=$(MAXLOCI) MAXIND=$(MAXIND) gone && \
     mv gone2 ..
-
-$(GONE2_DIR):
-	mkdir -p external
-	git clone $(GONE2_REPO) $(GONE2_DIR)
 
 $(HAP_IBD_BIN):
 	wget $(HAP_IBD_URL) -O $(HAP_IBD_BIN)

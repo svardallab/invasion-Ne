@@ -182,7 +182,7 @@ def main(
 
         # Sample from the posterior
         idata = pm.sample(
-            chains=4, tune=30_000, draws=30_000, target_accept=0.90, random_seed=seed
+            chains=4, tune=60_000, draws=40_000, target_accept=0.90, random_seed=seed
         )
         # Add log_likelihood to its own group
         idata.add_groups(log_likelihood=idata.posterior.log_likelihood)
