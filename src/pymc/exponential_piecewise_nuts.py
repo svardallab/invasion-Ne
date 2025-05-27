@@ -79,30 +79,29 @@ def gauss(a, b, n=10):
 
 
 def main(
-    infile: str,
+    ld_file: str,
+    ne_anc_file: str,
     ne1_prior_mean: float,
     ne1_prior_sd: float,
-    ne2_prior_mean: float,
-    ne2_prior_sd: float,
     t0_prior_mean: float,
     t0_prior_sd: float,
     alpha_logfold_prior_sd: float,
     sample_size: int,
+    seed: int,
     outfile: str,
 ) -> None:
     print(f"Running on PyMC v{pm.__version__}")
-    print(f"Processing file: {infile}")
+    print(f"Processing file: {ld_file}")
 
     # Read data
     df = pd.read_csv(
-        infile,
+        ld_file,
         delimiter="\t",
         comment="#",
         names=["bin_index", "left_bin", "right_bin", "N", "mean", "var"],
     )
     # Extract data for model
     Nrows = len(df)
-    bins = df["bin_index"].values
     # Get unique bin parameters
     df_bins = df.drop_duplicates("bin_index")[["bin_index", "left_bin", "right_bin"]]
     df_bins = df_bins.sort_values("bin_index")
@@ -116,7 +115,13 @@ def main(
     bin_indices = np.array(
         [np.where(df_bins["bin_index"].values == b)[0][0] for b in df["bin_index"]]
     )
-
+    print("Processing file:", ne_anc_file)
+    ne_df = pd.read_csv(ne_anc_file)
+    # Calcula mean and std of the Ne values across all chromosomes
+    ne2_prior_mean = ne_df["Ne"].mean()
+    ne2_prior_sd = ne_df["Ne"].std()
+    print("Ne2 prior mean:", ne2_prior_mean)
+    print("Ne2 prior std:", ne2_prior_sd)
     with pm.Model() as model:
         # Prior for Ne1
         # We use a truncated normal with variance to make things easier for NUTS
@@ -141,7 +146,7 @@ def main(
             "alpha_raw", mu=0, sigma=1, upper=pt.log(Ne1) / alpha_logfold_prior_sd
         )
         alpha = pm.Deterministic("alpha", alpha_raw * alpha_logfold_prior_sd / t0)
-        founders = pm.Deterministic("founders", Ne1 * pt.exp(-alpha * t0))
+        pm.Deterministic("founders", Ne1 * pt.exp(-alpha * t0))
 
         # Numerical integration across both time (0->Inf) and bin
         # Per timepoint points and weights
@@ -176,7 +181,9 @@ def main(
         pm.Potential("likelihood", pt.sum(pointwise_loglik))
 
         # Sample from the posterior
-        idata = pm.sample(chains=4, tune=15_000, draws=10_000, target_accept=0.90)
+        idata = pm.sample(
+            chains=4, tune=30_000, draws=30_000, target_accept=0.90, random_seed=seed
+        )
         # Add log_likelihood to its own group
         idata.add_groups(log_likelihood=idata.posterior.log_likelihood)
         # and remove it from the posterior group
@@ -193,30 +200,30 @@ def main(
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 9:
+    if len(sys.argv) != 11:
         print(
-            "Usage: python constant_population_piecewise_nuts.py <input_file> <ne1_prior_mean> <ne1_prior_sd> <ne2_prior_mean> <ne2_prior_sd> <t0_prior_mean> <t0_prior_sd> <alpha_logfold_prior_sd> <sample_size> <output_file>"
+            "Usage: python exponential_piecewise_nuts.py <ld_file> <ne_anc_file> <ne1_prior_mean> <ne1_prior_sd> <t0_prior_mean> <t0_prior_sd> <alpha_logfold_prior_sd> <sample_size> <seed> <output_file>"
         )
         sys.exit(1)
-    infile = sys.argv[1]
-    ne1_prior_mean = float(sys.argv[2])
-    ne1_prior_sd = float(sys.argv[3])
-    ne2_prior_mean = float(sys.argv[4])
-    ne2_prior_sd = float(sys.argv[5])
-    t0_prior_mean = float(sys.argv[6])
-    t0_prior_sd = float(sys.argv[7])
-    alpha_logfold_prior_sd = float(sys.argv[8])
-    sample_size = int(sys.argv[9])
+    ld_file = sys.argv[1]
+    ne_anc_file = sys.argv[2]
+    ne1_prior_mean = float(sys.argv[3])
+    ne1_prior_sd = float(sys.argv[4])
+    t0_prior_mean = float(sys.argv[5])
+    t0_prior_sd = float(sys.argv[6])
+    alpha_logfold_prior_sd = float(sys.argv[7])
+    sample_size = int(sys.argv[8])
+    seed = int(sys.argv[9])
     outfile = sys.argv[10]
     main(
-        infile,
+        ld_file,
+        ne_anc_file,
         ne1_prior_mean,
         ne1_prior_sd,
-        ne2_prior_mean,
-        ne2_prior_sd,
         t0_prior_mean,
         t0_prior_sd,
         alpha_logfold_prior_sd,
         sample_size,
+        seed,
         outfile,
     )
