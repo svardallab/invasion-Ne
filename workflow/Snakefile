@@ -3,12 +3,6 @@ NUM_CHROMOSOMES = 25
 COMMON = "calcua.sh"
 
 
-localrules:
-    all,
-    agglomerate_tables,
-    ballpark_ne
-
-
 wildcard_constraints:
     seed="\d+",
 
@@ -16,54 +10,35 @@ wildcard_constraints:
 rule all:
     input:
         expand(
+            "manuscript/figures/{figure}/ne1_{ne1}_founders_{founders}_t{t0}_s{seed}.pdf",
+            seed=range(100, 106),
+            ne1=[10000],
+            founders=[10, 100, 1000],
+            t0=[50, 25, 75],
+            figure=["methods", "posterior_predictive_check"],
+        ),
+        expand(
             "steps/inference/{model}/constant_recent_past/n{pop}/s{seed}.nc",
             seed=range(100, 106),
-           pop=[5000, 10000, 15000],
-           model=["constant_model", "constant_piecewise_model"],
-       ),
-        expand(
-           "steps/inference/{model}/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}.nc",
-           seed=range(100, 106),
-           ne1=[10000],
-           ne2=[10, 100, 1000],
-           t_inv=[50, 25, 75],
-           model=[
-               "constant_model",
-               "constant_piecewise_model",
-               "exponential_piecewise_model",
-           ],
+            pop=[5000, 10000, 15000],
+            model=["constant_model", "constant_piecewise_model"],
         ),
         expand(
-           "steps/ibdne/constant_recent_past/n{pop}/s{seed}.ne",
-           seed=range(100, 106),
-           pop=[5000, 10000, 15000],
-        ),
-        expand(
-            "steps/ibdne/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}.ne",
+            "steps/inference/{model}/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}.nc",
             seed=range(100, 106),
             ne1=[10000],
             ne2=[10, 100, 1000],
             t_inv=[50, 25, 75],
+            model=[
+                "constant_model",
+                "constant_piecewise_model",
+                "exponential_piecewise_model",
+            ],
         ),
         expand(
-            "steps/gone2/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}_GONE2_Ne",
-            seed=range(100, 106),
-            ne1=[10000],
-            ne2=[10, 100, 1000],
-            t_inv=[50, 25, 75],
-        ),
-        expand(
-            "steps/gone2/constant_recent_past/n{pop}/s{seed}_GONE2_Ne",
+            "steps/ibdne/constant_recent_past/n{pop}/s{seed}.ne",
             seed=range(100, 106),
             pop=[5000, 10000, 15000],
-        ),
-        expand(
-            "steps/hapne/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}_{method}_hapne_estimate.csv",
-            seed=range(100, 106),
-            ne1=[10000],
-            ne2=[10, 100, 1000],
-            t_inv=[50, 25, 75],
-            method=["ld", "ibd"],
         ),
         expand(
             "steps/hapne/constant_recent_past/n{pop}/s{seed}_{method}_hapne_estimate.csv",
@@ -71,11 +46,60 @@ rule all:
             pop=[5000, 10000, 15000],
             method=["ld", "ibd"],
         ),
+    localrule: True
+
+
+rule plot_method_comparison:
+    input:
+        hapne_ld_file="steps/hapne/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}_ld_hapne_estimate.csv",
+        hapne_ibd_file="steps/hapne/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}_ibd_hapne_estimate.csv",
+        ibdne_file="steps/ibdne/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}.ne",
+        gone2_file="steps/gone2/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}_GONE2_Ne",
+        bayes_ld_file="steps/inference/exponential_piecewise_model/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}.nc",
+    localrule: True
+    output:
+        multiext(
+            "manuscript/figures/methods/ne1_{ne1}_founders_{founders}_t{t0}_s{seed}",
+            ".pdf",
+            ".png",
+            ".svg",
+        ),
+    envmodules:
+        "calcua/2024a",
+        "Julia/1.11.1",
+    params:
+        # It's fixed for now...
+        ne2=15000,
+    script:
+        "plots/exponential_growth_methods.jl"
+
+
+rule plot_posterior_predictive_check:
+    input:
+        inference="steps/inference/exponential_piecewise_model/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}.nc",
+        data="steps/binned_ld/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}.csv",
+    localrule: True
+    output:
+        multiext(
+            "manuscript/figures/posterior_predictive_check/ne1_{ne1}_founders_{founders}_t{t0}_s{seed}",
+            ".pdf",
+            ".png",
+            ".svg",
+        ),
+    envmodules:
+        "calcua/2024a",
+        "Julia/1.11.1",
+    params:
+        # It's fixed for now...
+        ne2=15000,
+    script:
+        "plots/posterior_predictive_check.jl"
 
 
 rule agglomerate_tables:
     input:
         expand("steps/{{prefix}}/s{{seed}}_chr{i}.csv", i=range(NUM_CHROMOSOMES)),
+    localrule: True
     output:
         "steps/{prefix}/s{seed}.csv",
     shell:
@@ -123,6 +147,7 @@ rule tree_into_bcf:
         bcftools index {output[0]}
         """
 
+
 rule ballpark_ne:
     input:
         script="src/utils/ballpark_ne.py",
@@ -130,16 +155,18 @@ rule ballpark_ne:
             "steps/trees/{{prefix}}_chr{i}.trees",
             i=range(NUM_CHROMOSOMES),
         ),
+    localrule: True
     output:
-        "steps/inference/ballpark_ne/{prefix}.csv"
+        "steps/inference/ballpark_ne/{prefix}.csv",
     params:
         mutation_rate=1e-8,
-        recombination_rate=1e-8
+        recombination_rate=1e-8,
     shell:
         """
         source {COMMON}
         python {input.script} {params.mutation_rate} {params.recombination_rate} {input.files} > {output}
         """
+
 
 rule tree_into_vcf:
     input:
@@ -270,7 +297,7 @@ rule fit_exponential_piecewise_model:
     input:
         "src/pymc/exponential_piecewise_nuts.py",
         "steps/binned_ld/{prefix}/s{seed}.csv",
-        "steps/inference/ballpark_ne/{prefix}/s{seed}.csv"
+        "steps/inference/ballpark_ne/{prefix}/s{seed}.csv",
     output:
         "steps/inference/exponential_piecewise_model/{prefix}/s{seed}.nc",
     resources:
@@ -297,6 +324,7 @@ rule fit_exponential_piecewise_model:
             {params.sample_size} {wildcards.seed} {output} 2>&1 > {log}
         rm -rf "${{TMP_COMPILEDIR}}"
         """
+
 
 # Run GONE2
 rule gone2:
@@ -328,7 +356,7 @@ rule gone2:
         "calcua/2024a",
         "foss/2024a",
         "BCFtools/1.21-GCC-13.3.0",
-        "parallel/20240722-GCCcore-13.3.0"
+        "parallel/20240722-GCCcore-13.3.0",
     shell:
         """
         exec &> {log}
@@ -359,6 +387,8 @@ rule gone2:
         rm out.vcf
         echo "Done"
         """
+
+
 rule ibd_ne:
     input:
         inbcfs=expand(
