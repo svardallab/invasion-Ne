@@ -274,15 +274,13 @@ rule fit_exponential_piecewise_model:
     output:
         "steps/inference/exponential_piecewise_model/{prefix}/s{seed}.nc",
     resources:
-        mem_mb=2000,
-        runtime="4h",
+        runtime="30min",
     threads: 4
     conda:
         "../external/conda_env.yaml"
     log:
         "logs/inference/exponential_piecewise_model/{prefix}/s{seed}.log",
     params:
-        ne1_prior_mean=20_000,
         ne1_prior_sd=10_000,
         t0_prior_mean=50,
         t0_prior_sd=30,
@@ -293,42 +291,10 @@ rule fit_exponential_piecewise_model:
         source {COMMON}
         TMP_COMPILEDIR=$(mktemp -d)
         export PYTENSOR_FLAGS="compiledir=${{TMP_COMPILEDIR}}"
-        python {input} {params.ne1_prior_mean} {params.ne1_prior_sd} \
-            {params.t0_prior_mean} {params.t0_prior_sd} {params.alpha_logfold_prior_sd} \
-            {params.sample_size} {wildcards.seed} {output} 2>&1 | tee {log}
-        rm -rf "${{TMP_COMPILEDIR}}"
-        """
-
-rule fit_exponential_piecewise_nuts_fixed:
-    input:
-        "src/pymc/exponential_piecewise_nuts_fixed.py",
-        "steps/binned_ld/{prefix}/s{seed}.csv",
-        "steps/inference/ballpark_ne/{prefix}/s{seed}.csv"
-    output:
-        "steps/inference/exponential_piecewise_nuts_fixed/{prefix}/s{seed}.nc",
-    resources:
-        mem_mb=2000,
-        runtime="4h",
-    threads: 4
-    conda:
-        "../external/conda_env.yaml"
-    log:
-        "logs/inference/exponential_piecewise_nuts_fixed/{prefix}/s{seed}.log",
-    params:
-        ne1_prior_mean=20_000,
-        ne1_prior_sd=10_000,
-        t0_prior_mean=50,
-        t0_prior_sd=30,
-        alpha_logfold_prior_sd=1,
-        sample_size=200,
-    shell:
-        """
-        source {COMMON}
-        TMP_COMPILEDIR=$(mktemp -d)
-        export PYTENSOR_FLAGS="compiledir=${{TMP_COMPILEDIR}}"
-        python {input} {params.ne1_prior_mean} {params.ne1_prior_sd} \
-            {params.t0_prior_mean} {params.t0_prior_sd} {params.alpha_logfold_prior_sd} \
-            {params.sample_size} {wildcards.seed} {output} 2>&1 | tee {log}
+        python {input} \
+            {params.ne1_prior_sd} {params.t0_prior_mean} \
+            {params.t0_prior_sd} {params.alpha_logfold_prior_sd} \
+            {params.sample_size} {wildcards.seed} {output} 2>&1 > {log}
         rm -rf "${{TMP_COMPILEDIR}}"
         """
 

@@ -81,7 +81,6 @@ def gauss(a, b, n=10):
 def main(
     ld_file: str,
     ne_anc_file: str,
-    ne1_prior_mean: float,
     ne1_prior_sd: float,
     t0_prior_mean: float,
     t0_prior_sd: float,
@@ -118,7 +117,7 @@ def main(
     print("Processing file:", ne_anc_file)
     ne_df = pd.read_csv(ne_anc_file)
     # Calcula mean and std of the Ne values across all chromosomes
-    ne2_prior_mean = ne_df["Ne"].mean()
+    ne1_prior_mean = ne2_prior_mean = ne_df["Ne"].mean()
     ne2_prior_sd = ne_df["Ne"].std()
     print("Ne2 prior mean:", ne2_prior_mean)
     print("Ne2 prior std:", ne2_prior_sd)
@@ -182,7 +181,8 @@ def main(
 
         # Sample from the posterior
         idata = pm.sample(
-            chains=4, tune=60_000, draws=40_000, target_accept=0.90, random_seed=seed
+            chains=4, tune=2000, draws=2000,
+            target_accept=0.90, random_seed=seed, init = "advi+adapt_diag"
         )
         # Add log_likelihood to its own group
         idata.add_groups(log_likelihood=idata.posterior.log_likelihood)
@@ -200,25 +200,23 @@ def main(
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 11:
+    if len(sys.argv) != 10:
         print(
-            "Usage: python exponential_piecewise_nuts.py <ld_file> <ne_anc_file> <ne1_prior_mean> <ne1_prior_sd> <t0_prior_mean> <t0_prior_sd> <alpha_logfold_prior_sd> <sample_size> <seed> <output_file>"
+            "Usage: python exponential_piecewise_nuts.py <ld_file> <ne_anc_file> <ne1_prior_sd> <t0_prior_mean> <t0_prior_sd> <alpha_logfold_prior_sd> <sample_size> <seed> <output_file>"
         )
         sys.exit(1)
     ld_file = sys.argv[1]
     ne_anc_file = sys.argv[2]
-    ne1_prior_mean = float(sys.argv[3])
-    ne1_prior_sd = float(sys.argv[4])
-    t0_prior_mean = float(sys.argv[5])
-    t0_prior_sd = float(sys.argv[6])
-    alpha_logfold_prior_sd = float(sys.argv[7])
-    sample_size = int(sys.argv[8])
-    seed = int(sys.argv[9])
-    outfile = sys.argv[10]
+    ne1_prior_sd = float(sys.argv[3])
+    t0_prior_mean = float(sys.argv[4])
+    t0_prior_sd = float(sys.argv[5])
+    alpha_logfold_prior_sd = float(sys.argv[6])
+    sample_size = int(sys.argv[7])
+    seed = int(sys.argv[8])
+    outfile = sys.argv[9]
     main(
         ld_file,
         ne_anc_file,
-        ne1_prior_mean,
         ne1_prior_sd,
         t0_prior_mean,
         t0_prior_sd,
