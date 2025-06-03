@@ -33,7 +33,16 @@ rule all:
                 "constant_model",
                 "constant_piecewise_model",
                 "exponential_piecewise_model",
+                "exponential_piecewise_model_true_Ne_anc"
             ],
+        ),
+        expand(
+            "steps/inference/exponential_piecewise_model/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}_b{boot}.nc",
+            seed=range(100, 106),
+            ne1=[10000],
+            ne2=[10, 100, 1000],
+            t_inv=[50, 25, 75],
+            boot=range(50)
         ),
         expand(
             "steps/ibdne/constant_recent_past/n{pop}/s{seed}.ne",
@@ -292,6 +301,37 @@ rule fit_constant_piecewise_model:
         rm -rf "${{TMP_COMPILEDIR}}"
         """
 
+rule fit_exponential_piecewise_model_boot:
+    input:
+        "src/pymc/exponential_piecewise_nuts_boot.py",
+        "steps/binned_ld/{prefix}/s{seed}.csv",
+        "steps/inference/ballpark_ne/{prefix}/s{seed}.csv",
+    output:
+        "steps/inference/exponential_piecewise_model/{prefix}/s{seed}_b{boot}.nc",
+    resources:
+        runtime="30min",
+    threads: 1
+    conda:
+        "../external/conda_env.yaml"
+    log:
+        "logs/inference/exponential_piecewise_model_bagging/{prefix}/s{seed}_b{boot}.log",
+    params:
+        ne1_prior_sd=10_000,
+        t0_prior_mean=50,
+        t0_prior_sd=30,
+        alpha_logfold_prior_sd=1,
+        sample_size=200,
+    shell:
+        """
+        source {COMMON}
+        TMP_COMPILEDIR=$(mktemp -d)
+        export PYTENSOR_FLAGS="compiledir=${{TMP_COMPILEDIR}}"
+        python {input} \
+            {params.ne1_prior_sd} {params.t0_prior_mean} \
+            {params.t0_prior_sd} {params.alpha_logfold_prior_sd} \
+            {params.sample_size} {wildcards.seed} {wildcards.boot} {output} 2>&1 > {log}
+        rm -rf "${{TMP_COMPILEDIR}}"
+        """
 
 rule fit_exponential_piecewise_model:
     input:
@@ -320,6 +360,39 @@ rule fit_exponential_piecewise_model:
         export PYTENSOR_FLAGS="compiledir=${{TMP_COMPILEDIR}}"
         python {input} \
             {params.ne1_prior_sd} {params.t0_prior_mean} \
+            {params.t0_prior_sd} {params.alpha_logfold_prior_sd} \
+            {params.sample_size} {wildcards.seed} {output} 2>&1 > {log}
+        rm -rf "${{TMP_COMPILEDIR}}"
+        """
+
+
+rule fit_exponential_piecewise_model_true_Ne_anc:
+    input:
+        "src/pymc/exponential_piecewise_nuts_fixed.py",
+        "steps/binned_ld/{prefix}/s{seed}.csv",
+    output:
+        "steps/inference/exponential_piecewise_model_true_Ne_anc/{prefix}/s{seed}.nc",
+    resources:
+        runtime="30min",
+    threads: 4
+    conda:
+        "../external/conda_env.yaml"
+    log:
+        "logs/inference/exponential_piecewise_model_true_Ne_anc/{prefix}/s{seed}.log",
+    params:
+        ne_anc = 15_000,
+        ne1_prior_sd=10_000,
+        t0_prior_mean=50,
+        t0_prior_sd=30,
+        alpha_logfold_prior_sd=1,
+        sample_size=200,
+    shell:
+        """
+        source {COMMON}
+        TMP_COMPILEDIR=$(mktemp -d)
+        export PYTENSOR_FLAGS="compiledir=${{TMP_COMPILEDIR}}"
+        python {input} \
+            {params.ne_anc} {params.ne1_prior_sd} {params.t0_prior_mean} \
             {params.t0_prior_sd} {params.alpha_logfold_prior_sd} \
             {params.sample_size} {wildcards.seed} {output} 2>&1 > {log}
         rm -rf "${{TMP_COMPILEDIR}}"
@@ -563,4 +636,4 @@ rule run_hapne_ibd:
         mv hapne_analysis/results/*_summary.txt {output.summary}
         mv hapne_analysis/results/*_residuals.png {output.residuals}
         mv hapne_analysis/results/*_trajectory.png {output.popsize}
-        """
+		"""
