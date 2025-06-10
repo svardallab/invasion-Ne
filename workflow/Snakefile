@@ -37,14 +37,6 @@ rule all:
             ],
         ),
         expand(
-            "steps/inference/exponential_piecewise_model/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}_b{boot}.nc",
-            seed=range(100, 106),
-            ne1=[10000],
-            ne2=[10, 100, 1000],
-            t_inv=[50, 25, 75],
-            boot=range(50)
-        ),
-        expand(
             "steps/ibdne/constant_recent_past/n{pop}/s{seed}.ne",
             seed=range(100, 106),
             pop=[5000, 10000, 15000],
@@ -65,6 +57,10 @@ rule plot_method_comparison:
         ibdne_file="steps/ibdne/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}.ne",
         gone2_file="steps/gone2/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}_GONE2_Ne",
         bayes_ld_file="steps/inference/exponential_piecewise_model/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}.nc",
+        bayesbagg=expand(
+            "steps/inference/exponential_piecewise_model/exponential_growth/ne1_{{ne1}}_ne2_{{founders}}_t{{t0}}/s{{seed}}_b{boot}.nc",
+            boot=range(50)
+        )
     localrule: True
     output:
         multiext(
@@ -309,7 +305,7 @@ rule fit_exponential_piecewise_model_boot:
     output:
         "steps/inference/exponential_piecewise_model/{prefix}/s{seed}_b{boot}.nc",
     resources:
-        runtime="30min",
+        runtime="60min",
     threads: 1
     conda:
         "../external/conda_env.yaml"

@@ -45,6 +45,7 @@ hapne_ibd_file = snakemake.input["hapne_ibd_file"]
 ibdne_file = snakemake.input["ibdne_file"]
 gone2_file = snakemake.input["gone2_file"]
 bayes_ld_file = snakemake.input["bayes_ld_file"]
+bayesbagg = snakemake.input["bayesbagg"]
 outfiles = snakemake.output
 # Parameters
 Ne1 = parse(Float64, snakemake.wildcards["ne1"])
@@ -60,6 +61,12 @@ df_gone = CSV.read(gone2_file, DataFrame)
 # Load from NC dataset
 idata = from_netcdf(bayes_ld_file)
 df = summarize_trajectories(idata)
+# Compute expected trajectories across resampled datasets
+trajs_bayesbag = reduce(hcat, [
+        summarize_trajectories(from_netcdf(infile)).mean
+        for infile in bayesbagg ]
+)
+
 # Plot the data
 default(
     fontfamily = "Computer Modern",
@@ -70,11 +77,15 @@ default(
     grid = :none
 )
 
+lower = [quantile(row, 0.025) for row in eachrow(trajs_bayesbag)]
+upper = [quantile(row, 0.975) for row in eachrow(trajs_bayesbag)]
+expected = mean(trajs_bayesbag, dims=2)
+
 p = plot(
-    df.time,
-    df.mean,
-    ribbon=(df.mean .- df.lower, df.upper .- df.mean),
-    label="95% HPI (own method)",
+    times,
+    expected,
+    ribbon=(expected .- lower, upper .- expected),
+    label="95% BayesBagg (own method)",
     xlabel="Time (generations ago)",
     ylabel="Effective population size (Ne)",
     legend=:outerbottom,
@@ -84,6 +95,15 @@ p = plot(
     framestyle=:box,
 	dpi=300
 )
+
+#plot!(
+#    df.time,
+#    df.mean,
+#    ribbon=(df.mean .- df.lower, df.upper .- df.mean),
+#    label="Standard 95% HPI (own method)",
+#    lw=2,
+#    fillalpha=0.2
+#)
 
 plot!(
     df_hapneld.TIME,
