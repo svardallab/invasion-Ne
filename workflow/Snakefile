@@ -1,11 +1,11 @@
 NUM_CHROMOSOMES = 25
 # Workaround CALCUA VSC requirements about conda environments and containers
 COMMON = "calcua.sh"
-
+include: "flowerhorn.smk"
 
 wildcard_constraints:
     seed="\d+",
-
+    boot="\d+"
 
 rule all:
     input:
@@ -305,7 +305,7 @@ rule fit_exponential_piecewise_model_boot:
     output:
         "steps/inference/exponential_piecewise_model/{prefix}/s{seed}_b{boot}.nc",
     resources:
-        runtime="60min",
+        runtime="120min",
     threads: 1
     conda:
         "../external/conda_env.yaml"
