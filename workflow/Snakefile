@@ -2,52 +2,98 @@ NUM_CHROMOSOMES = 25
 # Workaround CALCUA VSC requirements about conda environments and containers
 COMMON = "calcua.sh"
 include: "flowerhorn.smk"
+include: "smc.smk"
 
 wildcard_constraints:
     seed="\d+",
     boot="\d+"
 
+#rule all:
+#   input:
+#       expand(
+#           "manuscript/figures/{figure}/ne1_{ne1}_founders_{founders}_t{t0}_s{seed}.pdf",
+#           seed=range(100, 126),
+#           ne1=[10000],
+#           founders=[10, 100, 1000],
+#           t0=[50, 25, 75],
+#           figure=["methods", "posterior_predictive_check"],
+#       ),
+#       expand(
+#           "steps/inference/{model}/constant_recent_past/n{pop}/s{seed}.nc",
+#           seed=range(100, 106),
+#           pop=[5000, 10000, 15000],
+#           model=["constant_model", "constant_piecewise_model"],
+#       ),
+#       expand(
+#           "steps/inference/{model}/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}.nc",
+#           seed=range(100, 106),
+#           ne1=[10000],
+#           ne2=[10, 100, 1000],
+#           t_inv=[50, 25, 75],
+#           model=[
+#               "constant_model",
+#               "constant_piecewise_model",
+#               "exponential_piecewise_model",
+#               "exponential_piecewise_model_true_Ne_anc"
+#           ],
+#       ),
+#       expand(
+#           "steps/ibdne/constant_recent_past/n{pop}/s{seed}.ne",
+#           seed=range(100, 106),
+#           pop=[5000, 10000, 15000],
+#       ),
+#       expand(
+#           "steps/hapne/constant_recent_past/n{pop}/s{seed}_{method}_hapne_estimate.csv",
+#           seed=range(100, 106),
+#            pop=[5000, 10000, 15000],
+#            method=["ld", "ibd"],
+#        ),
+#    localrule: True
+
 rule all:
-    input:
-        expand(
-            "manuscript/figures/{figure}/ne1_{ne1}_founders_{founders}_t{t0}_s{seed}.pdf",
-            seed=range(100, 106),
-            ne1=[10000],
-            founders=[10, 100, 1000],
-            t0=[50, 25, 75],
-            figure=["methods", "posterior_predictive_check"],
-        ),
-        expand(
-            "steps/inference/{model}/constant_recent_past/n{pop}/s{seed}.nc",
-            seed=range(100, 106),
-            pop=[5000, 10000, 15000],
-            model=["constant_model", "constant_piecewise_model"],
-        ),
-        expand(
-            "steps/inference/{model}/exponential_growth/ne1_{ne1}_ne2_{ne2}_t{t_inv}/s{seed}.nc",
-            seed=range(100, 106),
-            ne1=[10000],
-            ne2=[10, 100, 1000],
-            t_inv=[50, 25, 75],
-            model=[
-                "constant_model",
-                "constant_piecewise_model",
-                "exponential_piecewise_model",
-                "exponential_piecewise_model_true_Ne_anc"
-            ],
-        ),
-        expand(
-            "steps/ibdne/constant_recent_past/n{pop}/s{seed}.ne",
-            seed=range(100, 106),
-            pop=[5000, 10000, 15000],
-        ),
-        expand(
-            "steps/hapne/constant_recent_past/n{pop}/s{seed}_{method}_hapne_estimate.csv",
-            seed=range(100, 106),
-            pop=[5000, 10000, 15000],
-            method=["ld", "ibd"],
-        ),
-    localrule: True
+   input:
+       expand(
+           "steps/hapne/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}_ld_hapne_estimate.csv",
+           seed=range(100, 126),
+           ne1=[10000],
+           founders=[10, 100, 1000],
+           t0=[50, 25, 75],
+       ),
+       expand(
+           "steps/hapne/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}_ibd_hapne_estimate.csv",
+           seed=range(100, 126),
+           ne1=[10000],
+           founders=[10, 100, 1000],
+           t0=[50, 25, 75],
+       ),
+       expand(
+           "steps/ibdne/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}.ne",
+           seed=range(100, 126),
+           ne1=[10000],
+           founders=[10, 100, 1000],
+           t0=[50, 25, 75],
+       ),
+       expand(
+           "steps/gone2/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}_GONE2_Ne",
+           seed=range(100, 126),
+           ne1=[10000],
+           founders=[10, 100, 1000],
+           t0=[50, 25, 75],
+       ),
+       expand(
+           "steps/inference/exponential_piecewise_model/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}.nc",
+           seed=range(100, 126),
+           ne1=[10000],
+           founders=[10, 100, 1000],
+           t0=[50, 25, 75],
+       ),
+       expand(
+           "steps/inference/exponential_piecewise_model_informed/exponential_growth/ne1_{ne1}_ne2_{founders}_t{t0}/s{seed}.nc",
+           seed=range(100, 126),
+           ne1=[10000],
+           founders=[10, 100, 1000],
+           t0=[50, 25, 75],
+       ),
 
 
 rule plot_method_comparison:
@@ -137,8 +183,8 @@ rule tree_into_bcf:
     input:
         "steps/trees/{prefix}/s{seed}_chr{i}.trees",
     output:
-        "steps/bcfs/{prefix}/s{seed}_chr{i}.bcf",
-        "steps/bcfs/{prefix}/s{seed}_chr{i}.bcf.csi",
+        temp("steps/bcfs/{prefix}/s{seed}_chr{i}.bcf"),
+        temp("steps/bcfs/{prefix}/s{seed}_chr{i}.bcf.csi"),
     resources:
         mem_mb=3000,
         runtime="30min",
@@ -331,7 +377,7 @@ rule fit_exponential_piecewise_model_boot:
 
 rule fit_exponential_piecewise_model:
     input:
-        "src/pymc/exponential_piecewise_nuts.py",
+        "src/pymc/exponential_piecewise_nuts_contig.py",
         "steps/binned_ld/{prefix}/s{seed}.csv",
         "steps/inference/ballpark_ne/{prefix}/s{seed}.csv",
     output:
@@ -361,23 +407,23 @@ rule fit_exponential_piecewise_model:
         rm -rf "${{TMP_COMPILEDIR}}"
         """
 
-
-rule fit_exponential_piecewise_model_true_Ne_anc:
+rule fit_exponential_piecewise_model_informed_prior:
     input:
-        "src/pymc/exponential_piecewise_nuts_fixed.py",
+        "src/pymc/exponential_piecewise_nuts_contig_informed_prior.py",
         "steps/binned_ld/{prefix}/s{seed}.csv",
     output:
-        "steps/inference/exponential_piecewise_model_true_Ne_anc/{prefix}/s{seed}.nc",
+        "steps/inference/exponential_piecewise_model_informed/{prefix}/s{seed}.nc",
     resources:
         runtime="30min",
     threads: 4
     conda:
         "../external/conda_env.yaml"
     log:
-        "logs/inference/exponential_piecewise_model_true_Ne_anc/{prefix}/s{seed}.log",
+        "logs/inference/exponential_piecewise_model_informed/{prefix}/s{seed}.log",
     params:
-        ne_anc = 15_000,
         ne1_prior_sd=10_000,
+        ne2_prior_mean=15_000,
+        ne2_prior_sd=200,
         t0_prior_mean=50,
         t0_prior_sd=30,
         alpha_logfold_prior_sd=1,
@@ -388,12 +434,12 @@ rule fit_exponential_piecewise_model_true_Ne_anc:
         TMP_COMPILEDIR=$(mktemp -d)
         export PYTENSOR_FLAGS="compiledir=${{TMP_COMPILEDIR}}"
         python {input} \
-            {params.ne_anc} {params.ne1_prior_sd} {params.t0_prior_mean} \
+            {params.ne2_prior_mean} {params.ne2_prior_sd} \
+            {params.ne1_prior_sd} {params.t0_prior_mean} \
             {params.t0_prior_sd} {params.alpha_logfold_prior_sd} \
             {params.sample_size} {wildcards.seed} {output} 2>&1 > {log}
         rm -rf "${{TMP_COMPILEDIR}}"
         """
-
 
 # Run GONE2
 rule gone2:
